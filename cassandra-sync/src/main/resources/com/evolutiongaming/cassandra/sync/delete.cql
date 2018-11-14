@@ -1,0 +1,1 @@
+DELETE FROM keyspace.locks WHERE id = ?;
