@@ -1,8 +1,8 @@
 # cassandra-sync [![Build Status](https://travis-ci.org/evolution-gaming/cassandra-sync.svg)](https://travis-ci.org/evolution-gaming/cassandra-sync) [![Coverage Status](https://coveralls.io/repos/evolution-gaming/cassandra-sync/badge.svg)](https://coveralls.io/r/evolution-gaming/cassandra-sync) [![Codacy Badge](https://api.codacy.com/project/badge/Grade/041b527e012447b093bf3d68b4d79c67)](https://www.codacy.com/app/evolution-gaming/cassandra-sync?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=evolution-gaming/cassandra-sync&amp;utm_campaign=Badge_Grade) [ ![version](https://api.bintray.com/packages/evolutiongaming/maven/cassandra-sync/images/download.svg) ](https://bintray.com/evolutiongaming/maven/cassandra-sync/_latestVersion) [![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
 
-This is a small library that provides mechanism of `synchronization` via locks stored in Cassandra table.
-This `synchronization` is especially useful for preventing concurrent schema changes...
-Sad that concurrent schema changes [is not supported](https://issues.apache.org/jira/browse/CASSANDRA-10699) by Cassandra on it's own...
+This tiny library provides mechanism of `synchronization` via locks stored in Cassandra table.
+This `synchronization` is especially useful for preventing concurrent schema changes
+Sad that concurrent schema changes [is not supported](https://issues.apache.org/jira/browse/CASSANDRA-10699) by Cassandra on it's own.
 
 ## Concept 
 
@@ -20,7 +20,7 @@ val cassandraSync = CassandraSync(keyspace = "app")
 
 val result = cassandraSync("id", expiry = 3.seconds, timeout = 10.seconds) {
   // put your code here 
-  // the lock will ensure this code to be run strictly sequentially
+  // the lock will ensure that your code runs strictly sequentially
 }
 ```
 
