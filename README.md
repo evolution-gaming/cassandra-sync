@@ -31,12 +31,13 @@ At [Evolution Gaming](https://www.evolutiongaming.com) this table is created alo
 
 ```cql
 CREATE TABLE IF NOT EXISTS keyspace.locks(
-id TEXT PRIMARY KEY,
-expiry_ms BIGINT,
-timestamp TIMESTAMP,
-metadata TEXT);
+  id TEXT PRIMARY KEY,
+  expiry_ms BIGINT,
+  timestamp TIMESTAMP,
+  metadata TEXT);
 
-INSERT INTO keyspace.locks (id, expiry_ms, timestamp, metadata) VALUES (?, ?, ?, ?) IF NOT EXISTS USING TTL ?;
+INSERT INTO keyspace.locks (id, expiry_ms, timestamp, metadata) VALUES (?, ?, ?, ?)
+  IF NOT EXISTS USING TTL ?;
 
 DELETE FROM keyspace.locks WHERE id = ?;
 ```
