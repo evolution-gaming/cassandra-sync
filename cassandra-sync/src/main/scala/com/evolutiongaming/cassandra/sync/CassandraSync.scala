@@ -4,8 +4,8 @@ import java.time.Instant
 import java.util.concurrent.ScheduledExecutorService
 
 import com.evolutiongaming.concurrent.FutureHelper._
-import com.evolutiongaming.scassandra.syntax._
 import com.evolutiongaming.scassandra._
+import com.evolutiongaming.scassandra.syntax._
 
 import scala.compat.Platform
 import scala.concurrent.duration._
@@ -144,6 +144,7 @@ object CassandraSync {
             .encode("timestamp", timestamp)
             .encode("metadata", metadata)
             .encode("[ttl]", ttl)
+            .setIdempotent(true)
           for {
             result <- session.execute(bound)
           } yield {
@@ -167,6 +168,7 @@ object CassandraSync {
           val bound = statement
             .bind()
             .encode("id", id)
+            .setIdempotent(true)
           session.execute(bound).unit
         }
       }
