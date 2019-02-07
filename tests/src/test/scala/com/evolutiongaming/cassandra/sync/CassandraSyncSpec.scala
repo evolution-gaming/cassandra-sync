@@ -4,6 +4,7 @@ import java.util.UUID
 import java.util.concurrent.Executors
 
 import com.evolutiongaming.cassandra.StartCassandra
+import com.evolutiongaming.concurrent.CurrentThreadExecutionContext
 import com.evolutiongaming.scassandra.{CassandraConfig, CreateCluster}
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpec}
 
@@ -16,7 +17,7 @@ class CassandraSyncSpec extends WordSpec with BeforeAndAfterAll with Matchers {
 
   private lazy val shutdownCassandra = StartCassandra()
 
-  private val cluster = CreateCluster(CassandraConfig.Default)
+  private val cluster = CreateCluster(CassandraConfig.Default)(CurrentThreadExecutionContext)
 
   override def beforeAll() = {
     super.beforeAll()
