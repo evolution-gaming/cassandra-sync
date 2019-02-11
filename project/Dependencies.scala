@@ -8,7 +8,7 @@ object Dependencies {
 
   val `cassandra-launcher` = "com.evolutiongaming" %% "cassandra-launcher" % "0.0.2"
 
-  val scassandra = "com.evolutiongaming" %% "scassandra" % "0.0.8"
+  val scassandra = "com.evolutiongaming" %% "scassandra" % "0.0.9"
 
   object Logback {
     private val version = "1.2.3"
