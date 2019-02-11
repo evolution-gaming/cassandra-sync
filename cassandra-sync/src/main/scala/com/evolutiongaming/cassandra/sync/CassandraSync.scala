@@ -21,7 +21,7 @@ trait CassandraSync {
     */
   def apply[A](
     id: CassandraSync.Id,
-    expiry: FiniteDuration = 10.seconds,
+    expiry: FiniteDuration = 30.seconds,
     timeout: FiniteDuration = 30.seconds,
     metadata: Option[String] = None)(
     f: => Future[A]): Future[A]
