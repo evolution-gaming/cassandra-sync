@@ -75,17 +75,15 @@ object CassandraSync {
       } yield {}
     }
 
-    case class Statements(insert: Insert.Type, delete: Delete.Type)
-
     val statements = for {
-      _ <- created
-      insert = Insert(keyspaceTable)
-      delete = Delete(keyspaceTable)
+      _      <- created
+      insert  = Insert(keyspaceTable)
+      delete  = Delete(keyspaceTable)
       insert <- insert
       delete <- delete
-    } yield Statements(
-      insert = insert,
-      delete = delete)
+    } yield {
+      Statements(insert = insert, delete = delete)
+    }
 
     new CassandraSync {
 
@@ -116,12 +114,11 @@ object CassandraSync {
 
         for {
           statements <- statements
-          _ <- insert(statements)
-          result <- f.map[Try[A]](Success(_)).recover { case a => Failure(a) }
-          _ <- statements.delete(id).recover { case _ => () }
-        } yield {
-          result.get
-        }
+          _          <- insert(statements)
+          result     <- f.map[Try[A]](Success(_)).recover { case a => Failure(a) }
+          _          <- statements.delete(id).recover { case _ => () }
+          result     <- Future.fromTry(result)
+        } yield result
       }
     }
   }
@@ -174,6 +171,8 @@ object CassandraSync {
       }
     }
   }
+
+  final case class Statements(insert: Insert.Type, delete: Delete.Type)
 }
 
 case class LockAcquireTimeoutException(timeout: FiniteDuration)
