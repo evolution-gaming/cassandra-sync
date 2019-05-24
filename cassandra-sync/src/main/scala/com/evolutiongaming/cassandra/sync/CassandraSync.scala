@@ -57,7 +57,7 @@ object CassandraSync {
       session.execute(query)
     }
 
-    def after[A](delay: FiniteDuration)(f: => A): Future[A] = {
+    def after[A](f: => A): Future[A] = {
       val promise = Promise[A]()
       val runnable = new Runnable {
         def run() = promise.success(f)
@@ -103,7 +103,7 @@ object CassandraSync {
               _ <- {
                 if (applied) Future.unit
                 else if (Platform.currentTime > deadline) Future.failed(LockAcquireTimeoutException(timeout))
-                else after(interval)(insert(deadline)).flatten
+                else after(insert(deadline)).flatten
               }
             } yield {}
           }
