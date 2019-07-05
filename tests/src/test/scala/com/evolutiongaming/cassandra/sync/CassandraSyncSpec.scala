@@ -1,11 +1,14 @@
 package com.evolutiongaming.cassandra.sync
 
 import java.util.UUID
-import java.util.concurrent.Executors
 
+import cats.arrow.FunctionK
+import cats.effect.{IO, Resource}
+import com.evolutiongaming.catshelper.EffectHelper._
 import com.evolutiongaming.cassandra.StartCassandra
-import com.evolutiongaming.concurrent.CurrentThreadExecutionContext
-import com.evolutiongaming.scassandra.{CassandraConfig, CreateCluster}
+import com.evolutiongaming.scassandra.{CassandraCluster, CassandraConfig}
+import com.evolutiongaming.cassandra.sync.IOSuite._
+import com.evolutiongaming.catshelper.FromFuture
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpec}
 
 import scala.concurrent._
@@ -17,7 +20,10 @@ class CassandraSyncSpec extends WordSpec with BeforeAndAfterAll with Matchers {
 
   private lazy val shutdownCassandra = StartCassandra()
 
-  private val cluster = CreateCluster(CassandraConfig.Default)(CurrentThreadExecutionContext)
+  private lazy val (cluster, clusterRelease) = {
+    val cluster = CassandraCluster.of[IO](CassandraConfig.Default, clusterId = 0)
+    cluster.allocated.toTry.get
+  }
 
   override def beforeAll() = {
     super.beforeAll()
@@ -26,17 +32,28 @@ class CassandraSyncSpec extends WordSpec with BeforeAndAfterAll with Matchers {
   }
 
   override def afterAll() = {
-    cluster.close().await()
+    clusterRelease.toTry.get
     shutdownCassandra()
     super.afterAll()
   }
 
   "CassandraSync" should {
 
-    lazy val cassandraSync: CassandraSync = {
-      implicit val session = cluster.connect().await()
-      implicit val es = Executors.newScheduledThreadPool(3)
-      CassandraSync(keyspace = "test", autoCreate = AutoCreate.KeyspaceAndTable.Default)
+    lazy val (cassandraSync, _) = {
+      val cassandraSync = for {
+        session       <- cluster.connect
+        cassandraSync  = CassandraSync.of(session, keyspace = "test", autoCreate = AutoCreate.KeyspaceAndTable.Default)
+        cassandraSync <- Resource.liftF(cassandraSync)
+      } yield {
+        val toFuture = new FunctionK[IO, Future] {
+          def apply[A](fa: IO[A]) = fa.toFuture
+        }
+        val fromFuture = new FunctionK[Future, IO] {
+          def apply[A](fa: Future[A]) = FromFuture[IO].apply { fa }
+        }
+        cassandraSync.mapK(toFuture, fromFuture)
+      }
+      cassandraSync.allocated.toTry.get
     }
 
     "execute functions one by one" in new Scope {
@@ -79,7 +96,7 @@ class CassandraSyncSpec extends WordSpec with BeforeAndAfterAll with Matchers {
       val result0 = cassandraSync(id, expiry, timeout)(Promise[Unit]().future)
       the[TimeoutException] thrownBy result0.await(1.second)
       val result1 = cassandraSync(id, expiry, timeout)(Future.successful(1))
-      the[LockAcquireTimeoutException] thrownBy result1.await(1.second)
+      the[LockAcquireTimeoutError] thrownBy result1.await(1.second)
     }
   }
 

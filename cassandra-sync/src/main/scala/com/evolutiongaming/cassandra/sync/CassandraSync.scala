@@ -1,18 +1,18 @@
 package com.evolutiongaming.cassandra.sync
 
 import java.time.Instant
-import java.util.concurrent.ScheduledExecutorService
 
-import com.evolutiongaming.concurrent.FutureHelper._
+import cats.effect.{Clock, Resource, Sync, Timer}
+import cats.implicits._
+import cats.{FlatMap, ~>}
+import com.evolutiongaming.catshelper.ClockHelper._
 import com.evolutiongaming.scassandra._
 import com.evolutiongaming.scassandra.syntax._
 
-import scala.compat.Platform
+import scala.concurrent.TimeoutException
 import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future, Promise, TimeoutException}
-import scala.util.{Failure, Success, Try}
 
-trait CassandraSync {
+trait CassandraSync[F[_]] {
   /**
     * @param id       lock id
     * @param expiry   when to expiry the lock in case it was not removed gracefully
@@ -24,32 +24,36 @@ trait CassandraSync {
     expiry: FiniteDuration = 30.seconds,
     timeout: FiniteDuration = 30.seconds,
     metadata: Option[String] = None)(
-    f: => Future[A]): Future[A]
+    f: => F[A]
+  ): F[A]
 }
 
 object CassandraSync {
+
   type Id = String
 
   implicit val FiniteDurationEncode: EncodeByName[FiniteDuration] = EncodeByName[Long].imap(_.toMillis)
+
   implicit val FiniteDurationDecode: DecodeByName[FiniteDuration] = DecodeByName[Long].map(_.millis)
 
-  def apply(
+
+  def of[F[_] : Sync : Timer](
+    session: CassandraSession[F],
     keyspace: String,
     table: String = "locks",
     autoCreate: AutoCreate = AutoCreate.None,
-    interval: FiniteDuration = 100.millis)(implicit es: ScheduledExecutorService, session: Session): CassandraSync = {
-
-    implicit val ec = ExecutionContext.fromExecutor(es)
+    interval: FiniteDuration = 100.millis,
+  ): F[CassandraSync[F]] = {
 
     val keyspaceTable = s"$keyspace.$table"
 
-    def createTable() = {
+    def createTable = {
       session.execute(
         s"CREATE TABLE IF NOT EXISTS $keyspaceTable (" +
           "id text PRIMARY KEY, " +
           "expiry_ms BIGINT, " +
           "timestamp TIMESTAMP," +
-          "metadata TEXT)")
+          "metadata TEXT)").void
     }
 
     def createKeyspace(replicationStrategy: ReplicationStrategyConfig) = {
@@ -57,96 +61,116 @@ object CassandraSync {
       session.execute(query)
     }
 
-    def after[A](f: => A): Future[A] = {
-      val promise = Promise[A]()
-      val runnable = new Runnable {
-        def run() = promise.success(f)
-      }
-      es.schedule(runnable, interval.length, interval.unit)
-      promise.future
-    }
+    def createTableAndKeyspace(replicationStrategy: ReplicationStrategyConfig) = for {
+      _ <- createKeyspace(replicationStrategy)
+      _ <- createTable
+    } yield {}
 
     val created = autoCreate match {
-      case AutoCreate.None                => Future.unit
-      case AutoCreate.Table               => createTable()
-      case a: AutoCreate.KeyspaceAndTable => for {
-        _ <- createKeyspace(a.replicationStrategy)
-        _ <- createTable()
-      } yield {}
+      case AutoCreate.None                => ().pure[F]
+      case AutoCreate.Table               => createTable
+      case a: AutoCreate.KeyspaceAndTable => createTableAndKeyspace(a.replicationStrategy)
     }
 
-    val statements = for {
+    for {
       _      <- created
-      insert  = Insert(keyspaceTable)
-      delete  = Delete(keyspaceTable)
-      insert <- insert
-      delete <- delete
+      insert <- Insert.of(keyspaceTable, session)
+      delete <- Delete.of(keyspaceTable, session)
     } yield {
-      Statements(insert = insert, delete = delete)
+      val statements = Statements(insert = insert, delete = delete)
+      apply(interval, statements)
     }
+  }
 
-    new CassandraSync {
+
+  def apply[F[_] : Sync : Timer](
+    interval: FiniteDuration,
+    statements: Statements[F]
+  ): CassandraSync[F] = {
+
+    new CassandraSync[F] {
 
       def apply[A](
         id: String,
         expiry: FiniteDuration,
         timeout: FiniteDuration,
-        metadata: Option[String])(f: => Future[A]): Future[A] = {
+        metadata: Option[String])(
+        f: => F[A]
+      ): F[A] = {
 
-        val timestamp = Instant.now()
-
-        def insert(statements: Statements) = {
-
-          def insert(deadline: Long): Future[Unit] = {
-            for {
-              applied <- statements.insert(id, expiry, timestamp, metadata)
-              _ <- {
-                if (applied) Future.unit
-                else if (Platform.currentTime > deadline) Future.failed(LockAcquireTimeoutException(timeout))
-                else after(insert(deadline)).flatten
-              }
-            } yield {}
-          }
+        def lock(timestamp: Instant) = {
 
           val deadline = timestamp.toEpochMilli + timeout.toMillis
-          insert(deadline)
+
+          def timeoutError = LockAcquireTimeoutError(timeout)
+
+          val checkDeadline = for {
+            now <- Clock[F].instant
+            _   <- if (now.toEpochMilli > deadline) timeoutError.raiseError[F, Instant] else now.pure[F]
+          } yield now
+
+          def retry = for {
+            _         <- checkDeadline
+            _         <- Timer[F].sleep(interval)
+            timestamp <- checkDeadline
+          } yield timestamp
+
+          val lock = timestamp.tailRecM { timestamp =>
+            for {
+              applied <- statements.insert(id, expiry, timestamp, metadata)
+              result <- if (applied) ().asRight[Instant].pure[F] else retry.map(_.asLeft[Unit])
+              _      <- Timer[F].sleep(interval)
+            } yield result
+          }
+
+          val unlock = statements.delete(id)
+
+          val result = for {
+            a <- lock
+          } yield {
+            (a, unlock)
+          }
+          Resource(result)
         }
 
         for {
-          statements <- statements
-          _          <- insert(statements)
-          result     <- f.map[Try[A]](Success(_)).recover { case a => Failure(a) }
-          _          <- statements.delete(id).recover { case _ => () }
-          result     <- Future.fromTry(result)
+          timestamp <- Clock[F].instant
+          result    <- lock(timestamp).use { _ => f }
         } yield result
       }
     }
   }
 
 
-  object Insert {
-    type Type = (Id, FiniteDuration, Instant, Option[String]) => Future[Boolean]
+  trait Insert[F[_]] {
 
-    def apply(table: String)(implicit ec: ExecutionContext, session: Session): Future[Type] = {
+    def apply(id: Id, expiry: FiniteDuration, timestamp: Instant, metadata: Option[String]): F[Boolean]
+  }
+
+  object Insert {
+
+    def of[F[_] : FlatMap](table: String, session: CassandraSession[F]): F[Insert[F]] = {
       val query = s"INSERT INTO $table (id, expiry_ms, timestamp, metadata) VALUES (?, ?, ?, ?) IF NOT EXISTS USING TTL ?"
       for {
         statement <- session.prepare(query)
       } yield {
-        (id: Id, expiry: FiniteDuration, timestamp: Instant, metadata: Option[String]) => {
-          val ttl = (expiry.toSeconds max 1l).toInt
-          val bound = statement
-            .bind()
-            .encode("id", id)
-            .encode("expiry_ms", expiry)
-            .encode("timestamp", timestamp)
-            .encode("metadata", metadata)
-            .encode("[ttl]", ttl)
-            .setIdempotent(true)
-          for {
-            result <- session.execute(bound)
-          } yield {
-            val row = result.one()
-            row.decode[Boolean]("[applied]")
+        new Insert[F] {
+          def apply(id: Id, expiry: FiniteDuration, timestamp: Instant, metadata: Option[String]) = {
+            val ttl = (expiry.toSeconds max 1l).toInt
+            val bound = statement
+              .bind()
+              .encode("id", id)
+              .encode("expiry_ms", expiry)
+              .encode("timestamp", timestamp)
+              .encode("metadata", metadata)
+              .encode("[ttl]", ttl)
+              .setIdempotent(true)
+            for {
+              result <- session.execute(bound)
+            } yield {
+              val row = result.one()
+              row.decode[Boolean]("[applied]")
+            }
           }
         }
       }
@@ -154,26 +178,51 @@ object CassandraSync {
   }
 
 
-  object Delete {
-    type Type = Id => Future[Unit]
+  trait Delete[F[_]] {
 
-    def apply(table: String)(implicit ec: ExecutionContext, session: Session): Future[Type] = {
+    def apply(id: Id): F[Unit]
+  }
+
+  object Delete {
+
+    def of[F[_] : FlatMap](table: String, session: CassandraSession[F]): F[Delete[F]] = {
       for {
         statement <- session.prepare(s"DELETE FROM $table WHERE id = ?")
       } yield {
-        id: Id => {
-          val bound = statement
-            .bind()
-            .encode("id", id)
-            .setIdempotent(true)
-          session.execute(bound).unit
+        new Delete[F] {
+          def apply(id: Id) = {
+            val bound = statement
+              .bind()
+              .encode("id", id)
+              .setIdempotent(true)
+            session.execute(bound).void
+          }
         }
       }
     }
   }
 
-  final case class Statements(insert: Insert.Type, delete: Delete.Type)
+
+  final case class Statements[F[_]](insert: Insert[F], delete: Delete[F])
+
+
+  implicit class CassandraSyncOps[F[_]](val self: CassandraSync[F]) extends AnyVal {
+
+    def mapK[G[_]](f: F ~> G, g: G ~> F): CassandraSync[G] = new CassandraSync[G] {
+
+      def apply[A](
+        id: Id,
+        expiry: FiniteDuration,
+        timeout: FiniteDuration,
+        metadata: Option[String])(
+        f1: => G[A]
+      ) = {
+
+        f(self(id, expiry, timeout, metadata)(g(f1)))
+      }
+    }
+  }
 }
 
-case class LockAcquireTimeoutException(timeout: FiniteDuration)
+case class LockAcquireTimeoutError(timeout: FiniteDuration)
   extends TimeoutException(s"Failed to acquire lock within $timeout")

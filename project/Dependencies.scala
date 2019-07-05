@@ -2,10 +2,10 @@ import sbt._
 
 object Dependencies {
 
-  val scalatest            = "org.scalatest"       %% "scalatest"          % "3.0.7"
+  val scalatest            = "org.scalatest"       %% "scalatest"          % "3.0.8"
   val `future-helper`      = "com.evolutiongaming" %% "future-helper"      % "1.0.5"
   val `cassandra-launcher` = "com.evolutiongaming" %% "cassandra-launcher" % "0.0.2"
-  val scassandra           = "com.evolutiongaming" %% "scassandra"         % "0.0.11"
+  val scassandra           = "com.evolutiongaming" %% "scassandra"         % "1.0.0"
 
   object Logback {
     private val version = "1.2.3"
