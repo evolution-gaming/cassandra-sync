@@ -14,13 +14,14 @@ There is nice [statement](https://stackoverflow.com/a/34558/301517) which ideall
 ## Usage
 
 ```scala
-implicit val session: Session = ??? // Cassandra session
-implicit val es = Executors.newScheduledThreadPool(3) // just an example
-val cassandraSync = CassandraSync(keyspace = "app")
-
-val result = cassandraSync("id", expiry = 3.seconds, timeout = 10.seconds) {
-  // put your code here 
-  // the lock will ensure that your code runs strictly sequentially
+def example(session: CassandraSession[IO]) = {
+  for {
+    cassandraSync <- CassandraSync.of(session, keyspace = "app")
+    result        <- cassandraSync("id", expiry = 3.seconds, timeout = 10.seconds) {
+      // put your code here 
+      // the lock in cassandra per id will ensure that your code runs strictly sequentially
+    }
+  } yield result
 }
 ```
 
