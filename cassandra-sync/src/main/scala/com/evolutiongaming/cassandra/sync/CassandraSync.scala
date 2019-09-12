@@ -156,7 +156,7 @@ object CassandraSync {
       } yield {
         new Insert[F] {
           def apply(id: Id, expiry: FiniteDuration, timestamp: Instant, metadata: Option[String]) = {
-            val ttl = (expiry.toSeconds max 1l).toInt
+            val ttl = (expiry.toSeconds max 1L).toInt
             val bound = statement
               .bind()
               .encode("id", id)
