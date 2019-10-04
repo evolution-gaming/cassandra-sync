@@ -4,7 +4,7 @@ import java.util.UUID
 
 import cats.arrow.FunctionK
 import cats.effect.{IO, Resource}
-import com.evolutiongaming.catshelper.EffectHelper._
+import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.cassandra.StartCassandra
 import com.evolutiongaming.scassandra.{CassandraCluster, CassandraConfig}
 import com.evolutiongaming.cassandra.sync.IOSuite._

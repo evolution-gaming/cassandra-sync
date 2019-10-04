@@ -32,9 +32,9 @@ object CassandraSync {
 
   type Id = String
 
-  implicit val FiniteDurationEncode: EncodeByName[FiniteDuration] = EncodeByName[Long].imap(_.toMillis)
+  implicit val finiteDurationEncodeByName: EncodeByName[FiniteDuration] = EncodeByName[Long].contramap(_.toMillis)
 
-  implicit val FiniteDurationDecode: DecodeByName[FiniteDuration] = DecodeByName[Long].map(_.millis)
+  implicit val finiteDurationDecodeByName: DecodeByName[FiniteDuration] = DecodeByName[Long].map(_.millis)
 
 
   def of[F[_] : Sync : Timer](
