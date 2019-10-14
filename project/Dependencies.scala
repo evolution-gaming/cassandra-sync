@@ -5,7 +5,7 @@ object Dependencies {
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.0.8"
   val `future-helper`      = "com.evolutiongaming" %% "future-helper"      % "1.0.6"
   val `cassandra-launcher` = "com.evolutiongaming" %% "cassandra-launcher" % "0.0.3"
-  val scassandra           = "com.evolutiongaming" %% "scassandra"         % "2.0.0"
+  val scassandra           = "com.evolutiongaming" %% "scassandra"         % "2.0.3"
 
   object Logback {
     private val version = "1.2.3"
