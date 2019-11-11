@@ -187,7 +187,21 @@ object CassandraSync {
 
     def of[F[_] : FlatMap](table: String, session: CassandraSession[F]): F[Delete[F]] = {
       for {
-        statement <- session.prepare(s"DELETE FROM $table WHERE id = ?")
+        statement <- session.prepare(
+          /*
+          DELETE should also be a LWT op as mixing LWT and normal ops is prohibited:
+          https://docs.datastax.com/en/ddac/doc/datastax_enterprise/dbInternals/dbIntLtwtTransactions.html
+
+          Lightweight transactions will block other lightweight transactions from occurring,
+          but will not stop normal read and write operations from occurring.
+          Lightweight transactions use a timestamping mechanism different from normal operations,
+          so mixing lightweight transactions and normal operations can result in errors.
+          If lightweight transactions are used to write to a row within a partition,
+          only lightweight transactions for both read and write operations should be used.
+          This caution applies to all operations, whether individual or batched.
+           */
+          s"DELETE FROM $table WHERE id = ? IF EXISTS"
+        )
       } yield {
         new Delete[F] {
           def apply(id: Id) = {

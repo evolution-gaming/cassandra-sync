@@ -37,10 +37,13 @@ CREATE TABLE IF NOT EXISTS keyspace.locks(
   timestamp TIMESTAMP,
   metadata TEXT);
 
+-- Acquire lock
 INSERT INTO keyspace.locks (id, expiry_ms, timestamp, metadata) VALUES (?, ?, ?, ?)
   IF NOT EXISTS USING TTL ?;
 
-DELETE FROM keyspace.locks WHERE id = ?;
+-- Release lock
+-- This DELETE should also be a LWT op as mixing LWT and normal ops is prohibited
+DELETE FROM keyspace.locks WHERE id = ? IF EXISTS;
 ```
 
 ## Setup
