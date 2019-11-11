@@ -51,5 +51,5 @@ DELETE FROM keyspace.locks WHERE id = ? IF EXISTS;
 ```scala
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += "com.evolutiongaming" %% "cassandra-sync" % "0.0.1"
+libraryDependencies += "com.evolutiongaming" %% "cassandra-sync" % latestVersion
 ```
