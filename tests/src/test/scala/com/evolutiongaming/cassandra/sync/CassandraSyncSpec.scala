@@ -9,13 +9,15 @@ import com.evolutiongaming.cassandra.StartCassandra
 import com.evolutiongaming.scassandra.{CassandraCluster, CassandraConfig}
 import com.evolutiongaming.cassandra.sync.IOSuite._
 import com.evolutiongaming.catshelper.FromFuture
-import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpec}
+import org.scalatest.BeforeAndAfterAll
 
 import scala.concurrent._
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpec
 
-class CassandraSyncSpec extends WordSpec with BeforeAndAfterAll with Matchers {
+class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers {
   import CassandraSyncSpec._
 
   private lazy val shutdownCassandra = StartCassandra()
