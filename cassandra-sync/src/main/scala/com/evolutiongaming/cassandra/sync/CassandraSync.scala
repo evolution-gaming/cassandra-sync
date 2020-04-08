@@ -21,8 +21,8 @@ trait CassandraSync[F[_]] {
     */
   def apply[A](
     id: CassandraSync.Id,
-    expiry: FiniteDuration = 30.seconds,
-    timeout: FiniteDuration = 30.seconds,
+    expiry: FiniteDuration = 1.minute,
+    timeout: FiniteDuration = 1.minute,
     metadata: Option[String] = None)(
     f: => F[A]
   ): F[A]
@@ -118,8 +118,8 @@ object CassandraSync {
           val lock = timestamp.tailRecM { timestamp =>
             for {
               applied <- statements.insert(id, expiry, timestamp, metadata)
-              result <- if (applied) ().asRight[Instant].pure[F] else retry.map(_.asLeft[Unit])
-              _      <- Timer[F].sleep(interval)
+              result  <- if (applied) ().asRight[Instant].pure[F] else retry.map(_.asLeft[Unit])
+              _       <- Timer[F].sleep(interval)
             } yield result
           }
 
