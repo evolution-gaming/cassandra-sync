@@ -1,4 +1,9 @@
-# cassandra-sync [![Build Status](https://travis-ci.org/evolution-gaming/cassandra-sync.svg)](https://travis-ci.org/evolution-gaming/cassandra-sync) [![Coverage Status](https://coveralls.io/repos/evolution-gaming/cassandra-sync/badge.svg)](https://coveralls.io/r/evolution-gaming/cassandra-sync) [![Codacy Badge](https://api.codacy.com/project/badge/Grade/041b527e012447b093bf3d68b4d79c67)](https://www.codacy.com/app/evolution-gaming/cassandra-sync?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=evolution-gaming/cassandra-sync&amp;utm_campaign=Badge_Grade) [ ![version](https://api.bintray.com/packages/evolutiongaming/maven/cassandra-sync/images/download.svg) ](https://bintray.com/evolutiongaming/maven/cassandra-sync/_latestVersion) [![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
+# cassandra-sync
+[![Build Status](https://github.com/evolution-gaming/cassandra-sync/workflows/CI/badge.svg)](https://github.com/evolution-gaming/cassandra-sync/actions?query=workflow%3ACI)
+[![Coverage Status](https://coveralls.io/repos/evolution-gaming/cassandra-sync/badge.svg)](https://coveralls.io/r/evolution-gaming/cassandra-sync)
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/041b527e012447b093bf3d68b4d79c67)](https://www.codacy.com/app/evolution-gaming/cassandra-sync?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=evolution-gaming/cassandra-sync&amp;utm_campaign=Badge_Grade)
+[![version](https://api.bintray.com/packages/evolutiongaming/maven/cassandra-sync/images/download.svg) ](https://bintray.com/evolutiongaming/maven/cassandra-sync/_latestVersion)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
 
 This tiny library provides mechanism of `synchronization` via locks stored in Cassandra table.
 This `synchronization` is especially useful for preventing concurrent schema changes.
