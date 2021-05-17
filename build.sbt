@@ -6,11 +6,10 @@ lazy val commonSettings = Seq(
   startYear := Some(2018),
   organizationName := "Evolution Gaming",
   organizationHomepage := Some(url("http://evolutiongaming.com")),
-  bintrayOrganization := Some("evolutiongaming"),
   scalaVersion := crossScalaVersions.value.head,
-  crossScalaVersions := Seq("2.13.3", "2.12.12"),
-  scalacOptions in(Compile, doc) ++= Seq("-groups", "-implicits", "-no-link-warnings"),
-  resolvers += Resolver.bintrayRepo("evolutiongaming", "maven"),
+  crossScalaVersions := Seq("2.13.5", "2.12.13"),
+  Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings"),
+  publishTo := Some(Resolver.evolutionReleases),
   licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT"))),
   releaseCrossBuild := true)
 
@@ -18,7 +17,7 @@ lazy val root = (project in file(".")
   settings (name := "cassandra-sync")
   settings commonSettings
   settings (
-  skip in publish := true,
+  publish / skip := true,
   skip / publishArtifact := true)
   aggregate(`cassandra-sync`, tests))
 
@@ -34,7 +33,7 @@ lazy val tests = (project in file("tests")
   settings (name := "tests")
   settings commonSettings
   settings Seq(
-  skip in publish := true,
+  publish / skip := true,
   skip / publishArtifact := true,
   Test / fork := true,
   Test / parallelExecution := false)

@@ -2,7 +2,7 @@
 [![Build Status](https://github.com/evolution-gaming/cassandra-sync/workflows/CI/badge.svg)](https://github.com/evolution-gaming/cassandra-sync/actions?query=workflow%3ACI)
 [![Coverage Status](https://coveralls.io/repos/evolution-gaming/cassandra-sync/badge.svg)](https://coveralls.io/r/evolution-gaming/cassandra-sync)
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/041b527e012447b093bf3d68b4d79c67)](https://www.codacy.com/app/evolution-gaming/cassandra-sync?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=evolution-gaming/cassandra-sync&amp;utm_campaign=Badge_Grade)
-[![version](https://api.bintray.com/packages/evolutiongaming/maven/cassandra-sync/images/download.svg) ](https://bintray.com/evolutiongaming/maven/cassandra-sync/_latestVersion)
+[![Version](https://img.shields.io/badge/version-click-blue)](https://evolution.jfrog.io/artifactory/api/search/latestVersion?g=com.evolutiongaming&a=cassandra-sync_2.13&repos=public)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
 
 This tiny library provides mechanism of `synchronization` via locks stored in Cassandra table.
@@ -54,7 +54,7 @@ DELETE FROM keyspace.locks WHERE id = ? IF EXISTS;
 ## Setup
 
 ```scala
-resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
+addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.0.2")
 
 libraryDependencies += "com.evolutiongaming" %% "cassandra-sync" % latestVersion
 ```
