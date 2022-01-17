@@ -1,8 +1,8 @@
 package com.evolutiongaming.cassandra.sync
 
 import java.util.UUID
-
 import cats.arrow.FunctionK
+import cats.effect.unsafe.implicits
 import cats.effect.{IO, Resource}
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.cassandra.StartCassandra
@@ -19,6 +19,8 @@ import org.scalatest.wordspec.AnyWordSpec
 
 class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers {
   import CassandraSyncSpec._
+
+  implicit val ioRuntime = implicits.global
 
   private lazy val shutdownCassandra = StartCassandra()
 
@@ -45,7 +47,7 @@ class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers
       val cassandraSync = for {
         session       <- cluster.connect
         cassandraSync  = CassandraSync.of(session, keyspace = "test", autoCreate = AutoCreate.KeyspaceAndTable.Default)
-        cassandraSync <- Resource.liftF(cassandraSync)
+        cassandraSync <- Resource.eval(cassandraSync)
       } yield {
         val toFuture = new FunctionK[IO, Future] {
           def apply[A](fa: IO[A]) = fa.toFuture
