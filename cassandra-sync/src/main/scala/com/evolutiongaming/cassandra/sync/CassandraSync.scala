@@ -1,8 +1,7 @@
 package com.evolutiongaming.cassandra.sync
 
 import java.time.Instant
-
-import cats.effect.{Clock, Resource, Sync, Timer}
+import cats.effect.{Clock, Resource, Temporal}
 import cats.implicits._
 import cats.{FlatMap, ~>}
 import com.evolutiongaming.catshelper.ClockHelper._
@@ -37,7 +36,7 @@ object CassandraSync {
   implicit val finiteDurationDecodeByName: DecodeByName[FiniteDuration] = DecodeByName[Long].map(_.millis)
 
 
-  def of[F[_] : Sync : Timer](
+  def of[F[_] : Temporal](
     session: CassandraSession[F],
     keyspace: String,
     table: String = "locks",
@@ -83,7 +82,7 @@ object CassandraSync {
   }
 
 
-  def apply[F[_] : Sync : Timer](
+  def apply[F[_] : Temporal](
     interval: FiniteDuration,
     statements: Statements[F]
   ): CassandraSync[F] = {
@@ -111,7 +110,7 @@ object CassandraSync {
 
           def retry = for {
             _         <- checkDeadline
-            _         <- Timer[F].sleep(interval)
+            _         <- Temporal[F].sleep(interval)
             timestamp <- checkDeadline
           } yield timestamp
 
@@ -119,7 +118,7 @@ object CassandraSync {
             for {
               applied <- statements.insert(id, expiry, timestamp, metadata)
               result  <- if (applied) ().asRight[Instant].pure[F] else retry.map(_.asLeft[Unit])
-              _       <- Timer[F].sleep(interval)
+              _       <- Temporal[F].sleep(interval)
             } yield result
           }
 
