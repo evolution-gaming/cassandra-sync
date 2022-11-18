@@ -3,7 +3,7 @@ import sbt._
 object Dependencies {
 
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.2.3"
-  val `future-helper`      = "com.evolutiongaming" %% "future-helper"      % "1.0.6"
+  val `future-helper`      = "com.evolutiongaming" %% "future-helper"      % "1.0.7"
   val `cassandra-launcher` = "com.evolutiongaming" %% "cassandra-launcher" % "0.0.4"
   val scassandra           = "com.evolutiongaming" %% "scassandra"         % "4.0.1"
 
