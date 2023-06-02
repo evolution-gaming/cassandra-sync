@@ -45,7 +45,7 @@ class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers
       val cassandraSync = for {
         session       <- cluster.connect
         cassandraSync  = CassandraSync.of(session, keyspace = "test", autoCreate = AutoCreate.KeyspaceAndTable.Default)
-        cassandraSync <- Resource.liftF(cassandraSync)
+        cassandraSync <- Resource.eval(cassandraSync)
       } yield {
         val toFuture = new FunctionK[IO, Future] {
           def apply[A](fa: IO[A]) = fa.toFuture
