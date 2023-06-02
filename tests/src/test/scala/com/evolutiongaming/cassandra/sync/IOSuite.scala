@@ -17,7 +17,7 @@ object IOSuite {
   implicit val concurrentIO: Concurrent[IO] = IO.ioConcurrentEffect
   implicit val timerIO: Timer[IO] = IO.timer(executor)
   implicit val parallelIO: Parallel[IO] = IO.ioParallel
-  implicit val fromGFutureIO: FromGFuture[IO] = FromGFuture.lift[IO]
+  implicit val fromGFutureIO: FromGFuture[IO] = FromGFuture.lift1[IO]
 
   def runIO[A](io: IO[A], timeout: FiniteDuration = Timeout): Future[Succeeded.type] = {
     io.timeout(timeout).as(Succeeded).unsafeToFuture()
