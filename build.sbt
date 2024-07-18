@@ -2,10 +2,10 @@ import Dependencies._
 
 lazy val commonSettings = Seq(
   organization := "com.evolutiongaming",
-  homepage := Some(new URL("http://github.com/evolution-gaming/cassandra-sync")),
+  homepage := Some(url("https://github.com/evolution-gaming/cassandra-sync")),
   startYear := Some(2018),
-  organizationName := "Evolution Gaming",
-  organizationHomepage := Some(url("http://evolutiongaming.com")),
+  organizationName := "Evolution",
+  organizationHomepage := Some(url("https://evolution.com")),
   scalaVersion := crossScalaVersions.value.head,
   crossScalaVersions := Seq("2.13.5", "2.12.13"),
   Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings"),
@@ -13,9 +13,15 @@ lazy val commonSettings = Seq(
   licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT"))),
   releaseCrossBuild := true)
 
+val alias: Seq[sbt.Def.Setting[_]] =
+  //  addCommandAlias("check", "all versionPolicyCheck Compile/doc") ++
+  addCommandAlias("check", "show version") ++
+    addCommandAlias("build", "+all compile test")
+
 lazy val root = (project in file(".")
   settings (name := "cassandra-sync")
   settings commonSettings
+  settings (alias)
   settings (
   publish / skip := true,
   skip / publishArtifact := true)
