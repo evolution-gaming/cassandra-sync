@@ -7,7 +7,7 @@ lazy val commonSettings = Seq(
   organizationName := "Evolution",
   organizationHomepage := Some(url("https://evolution.com")),
   scalaVersion := crossScalaVersions.value.head,
-  crossScalaVersions := Seq("2.13.5", "2.12.13"),
+  crossScalaVersions := Seq("2.13.14", "3.3.3"),
   Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings"),
   publishTo := Some(Resolver.evolutionReleases),
   licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT"))),
@@ -45,7 +45,7 @@ lazy val tests = (project in file("tests")
   Test / parallelExecution := false)
   dependsOn `cassandra-sync` % "test->test;compile->compile"
   settings (libraryDependencies ++= Seq(
-  `cassandra-launcher` % Test,
+  `testcontainers-cassandra` % Test,
   Slf4j.api % Test,
   Slf4j.`log4j-over-slf4j` % Test,
   Logback.core % Test,
