@@ -2,7 +2,7 @@ package com.evolutiongaming.cassandra.sync
 
 import java.util.UUID
 import cats.arrow.FunctionK
-import cats.effect.unsafe.implicits
+import cats.effect.unsafe.{IORuntime, implicits}
 import cats.effect.{IO, Resource}
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.dimafeng.testcontainers.CassandraContainer
@@ -33,7 +33,7 @@ class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers
  // due to test structure we need to start the container before the test suite
   cassandraContainer.start()
 
-  implicit val ioRuntime = implicits.global
+  implicit val ioRuntime: IORuntime = implicits.global
 
 
   private lazy val (cluster, clusterRelease) = {
