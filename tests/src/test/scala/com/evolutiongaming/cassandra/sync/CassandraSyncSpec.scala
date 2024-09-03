@@ -10,6 +10,7 @@ import org.testcontainers.utility.DockerImageName
 import com.evolutiongaming.scassandra.{CassandraCluster, CassandraConfig}
 import com.evolutiongaming.cassandra.sync.IOSuite._
 import com.evolutiongaming.catshelper.FromFuture
+import com.evolutiongaming.nel.Nel
 import org.scalatest.BeforeAndAfterAll
 
 import scala.concurrent._
@@ -28,10 +29,14 @@ class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers
   cassandraContainer.start()
 
   implicit val ioRuntime: IORuntime = implicits.global
+   private lazy val config = CassandraConfig.Default.copy(
+      contactPoints = Nel(cassandraContainer.containerIpAddress),
+      port = cassandraContainer.mappedPort(9042),
+    )
 
 
   private lazy val (cluster, clusterRelease) = {
-    val cluster = CassandraCluster.of[IO](CassandraConfig.Default, clusterId = 0)
+    val cluster = CassandraCluster.of[IO](config, clusterId = 0)
     cluster.allocated.toTry.get
   }
 
