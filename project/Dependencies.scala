@@ -3,18 +3,18 @@ import sbt._
 object Dependencies {
 
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.2.17"
-  val `future-helper`      = "com.evolutiongaming" %% "future-helper"      % "1.0.6"
-  val `cassandra-launcher` = "com.evolutiongaming" %% "cassandra-launcher" % "0.0.4"
-  val scassandra           = "com.evolutiongaming" %% "scassandra"         % "5.0.0"
+  val `testcontainers-cassandra` = "com.dimafeng"           %% "testcontainers-scala-cassandra"  % "0.41.4"
+  val `future-helper`      = "com.evolutiongaming" %% "future-helper"      % "1.0.7"
+  val scassandra           = "com.evolutiongaming" %% "scassandra"         % "5.2.1"
 
   object Logback {
-    private val version = "1.2.3"
+    private val version = "1.5.10"
     val core    = "ch.qos.logback" % "logback-core"    % version
     val classic = "ch.qos.logback" % "logback-classic" % version
   }
 
   object Slf4j {
-    private val version = "1.7.30"
+    private val version = "2.0.16"
     val api                = "org.slf4j" % "slf4j-api"        % version
     val `log4j-over-slf4j` = "org.slf4j" % "log4j-over-slf4j" % version
   }
