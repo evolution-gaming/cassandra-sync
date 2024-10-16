@@ -2,13 +2,15 @@ package com.evolutiongaming.cassandra.sync
 
 import java.util.UUID
 import cats.arrow.FunctionK
-import cats.effect.unsafe.implicits
+import cats.effect.unsafe.{IORuntime, implicits}
 import cats.effect.{IO, Resource}
 import com.evolutiongaming.catshelper.CatsHelper._
-import com.evolutiongaming.cassandra.StartCassandra
+import com.dimafeng.testcontainers.CassandraContainer
+import org.testcontainers.utility.DockerImageName
 import com.evolutiongaming.scassandra.{CassandraCluster, CassandraConfig}
 import com.evolutiongaming.cassandra.sync.IOSuite._
 import com.evolutiongaming.catshelper.FromFuture
+import com.evolutiongaming.nel.Nel
 import org.scalatest.BeforeAndAfterAll
 
 import scala.concurrent._
@@ -19,25 +21,29 @@ import org.scalatest.wordspec.AnyWordSpec
 
 class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers {
   import CassandraSyncSpec._
+  private lazy val cassandraContainer = CassandraContainer(
+    dockerImageNameOverride = DockerImageName.parse("cassandra:3.11.7"),
+  )
 
-  implicit val ioRuntime = implicits.global
+ // due to test structure we need to start the container before the test suite
+  cassandraContainer.start()
 
-  private lazy val shutdownCassandra = StartCassandra()
+  implicit val ioRuntime: IORuntime = implicits.global
+   private lazy val config = CassandraConfig.Default.copy(
+      contactPoints = Nel(cassandraContainer.containerIpAddress),
+      port = cassandraContainer.mappedPort(9042),
+    )
+
 
   private lazy val (cluster, clusterRelease) = {
-    val cluster = CassandraCluster.of[IO](CassandraConfig.Default, clusterId = 0)
+    val cluster = CassandraCluster.of[IO](config, clusterId = 0)
     cluster.allocated.toTry.get
   }
 
-  override def beforeAll() = {
-    super.beforeAll()
-    shutdownCassandra
-    ()
-  }
 
   override def afterAll() = {
     clusterRelease.toTry.get
-    shutdownCassandra()
+    cassandraContainer.stop()
     super.afterAll()
   }
 
