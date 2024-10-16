@@ -8,7 +8,7 @@ object Dependencies {
   val scassandra           = "com.evolutiongaming" %% "scassandra"         % "5.2.1"
 
   object Logback {
-    private val version = "1.5.10"
+    private val version = "1.5.11"
     val core    = "ch.qos.logback" % "logback-core"    % version
     val classic = "ch.qos.logback" % "logback-classic" % version
   }
