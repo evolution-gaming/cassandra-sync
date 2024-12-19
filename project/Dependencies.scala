@@ -3,7 +3,7 @@ import sbt._
 object Dependencies {
 
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.2.19"
-  val `testcontainers-cassandra` = "com.dimafeng"           %% "testcontainers-scala-cassandra"  % "0.41.4"
+  val `testcontainers-cassandra` = "com.dimafeng"           %% "testcontainers-scala-cassandra"  % "0.41.5"
   val `future-helper`      = "com.evolutiongaming" %% "future-helper"      % "1.0.7"
   val scassandra           = "com.evolutiongaming" %% "scassandra"         % "5.3.0"
 
