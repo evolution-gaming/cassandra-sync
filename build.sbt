@@ -1,4 +1,4 @@
-import Dependencies._
+import Dependencies.*
 
 lazy val commonSettings = Seq(
   organization := "com.evolutiongaming",
@@ -6,16 +6,15 @@ lazy val commonSettings = Seq(
   startYear := Some(2018),
   organizationName := "Evolution",
   organizationHomepage := Some(url("https://evolution.com")),
+  versionPolicyIntention := Compatibility.BinaryCompatible,
   scalaVersion := crossScalaVersions.value.head,
-  crossScalaVersions := Seq("2.13.15", "3.3.4"),
+  crossScalaVersions := Seq("2.13.16", "3.3.5"),
   Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings"),
   publishTo := Some(Resolver.evolutionReleases),
-  licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT"))),
-  releaseCrossBuild := true)
+  licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT"))))
 
-val alias: Seq[sbt.Def.Setting[_]] =
-  //  addCommandAlias("check", "all versionPolicyCheck Compile/doc") ++
-  addCommandAlias("check", "show version") ++
+val alias: Seq[sbt.Def.Setting[?]] =
+  addCommandAlias("check", "all versionPolicyCheck Compile/doc") ++
     addCommandAlias("build", "+all compile test")
 
 lazy val root = (project in file(".")
