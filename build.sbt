@@ -15,7 +15,7 @@ lazy val commonSettings = Seq(
 
 val alias: Seq[sbt.Def.Setting[?]] =
   addCommandAlias("check", "all versionPolicyCheck Compile/doc") ++
-    addCommandAlias("build", "+all compile test")
+    addCommandAlias("build", "all compile test")
 
 lazy val root = (project in file(".")
   settings (name := "cassandra-sync")
