@@ -32,10 +32,10 @@ jobs:
         uses: sbt/setup-sbt@v1
 
       - name: check code ${{ matrix.scala }}
-        run: sbt ++${{ matrix.scala }} clean check
+        run: sbt "++${{ matrix.scala }}; clean; check"
 
       - name: build ${{ matrix.scala }}
-        run: sbt ++${{ matrix.scala }} clean coverage test coverageAggregate
+        run: sbt "++${{ matrix.scala }}; clean; coverage; test; coverageAggregate"
 
       - name: locate coverage report
         id: coverage
@@ -44,7 +44,7 @@ jobs:
 
       - name: test coverage
         if: success()
-        uses: coverallsapp/github-action@v2
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
         with:
           file: ${{ steps.coverage.outputs.file }}
           format: cobertura
