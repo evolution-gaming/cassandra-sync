@@ -2,16 +2,16 @@ import Dependencies.*
 
 lazy val commonSettings = Seq(
   organization := "com.evolutiongaming",
-  homepage := Some(url("https://github.com/evolution-gaming/cassandra-sync")),
+  homepage := Some(uri("https://github.com/evolution-gaming/cassandra-sync")),
   startYear := Some(2018),
   organizationName := "Evolution",
-  organizationHomepage := Some(url("https://evolution.com")),
+  organizationHomepage := Some(uri("https://evolution.com")),
   versionPolicyIntention := Compatibility.BinaryCompatible,
   scalaVersion := crossScalaVersions.value.head,
   crossScalaVersions := Seq("2.13.18", "3.3.8"),
   Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings"),
   publishTo := Some(Resolver.evolutionReleases),
-  licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT"))),
+  licenses := Seq(("MIT", uri("https://opensource.org/licenses/MIT"))),
   Test / scalacOptions -= "-Wnonunit-statement",
 )
 
