@@ -9,6 +9,5 @@ jobs:
   test:
     uses: evolution-gaming/scala-github-actions/.github/workflows/ci.yml@dde27b9bd793d41d5aacf8fb74403c9de5da1146 # v6.3.0
     with:
-      scala_versions: '["2.13.18", "3.3.7"]'
       # TODO no sbt-scalafmt in this repo, so formatting was never checked
       scalafmt_check: false
