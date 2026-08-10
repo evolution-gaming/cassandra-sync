@@ -1,23 +1,23 @@
 package com.evolutiongaming.cassandra.sync
 
-import java.util.UUID
 import cats.arrow.FunctionK
 import cats.effect.unsafe.{IORuntime, implicits}
 import cats.effect.{IO, Resource}
-import com.evolutiongaming.catshelper.CatsHelper._
 import com.dimafeng.testcontainers.CassandraContainer
-import org.testcontainers.utility.DockerImageName
-import com.evolutiongaming.scassandra.{CassandraCluster, CassandraConfig}
 import com.evolutiongaming.cassandra.sync.IOSuite._
+import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.FromFuture
 import com.evolutiongaming.nel.Nel
+import com.evolutiongaming.scassandra.{CassandraCluster, CassandraConfig}
 import org.scalatest.BeforeAndAfterAll
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpec
+import org.testcontainers.utility.DockerImageName
 
+import java.util.UUID
 import scala.concurrent._
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
-import org.scalatest.matchers.should.Matchers
-import org.scalatest.wordspec.AnyWordSpec
 
 class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers {
   import CassandraSyncSpec._
@@ -25,21 +25,19 @@ class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers
     image = DockerImageName.parse("cassandra:3.11.7"),
   )
 
- // due to test structure we need to start the container before the test suite
+  // due to test structure we need to start the container before the test suite
   cassandraContainer.start()
 
   implicit val ioRuntime: IORuntime = implicits.global
-   private lazy val config = CassandraConfig.Default.copy(
-      contactPoints = Nel(cassandraContainer.containerIpAddress),
-      port = cassandraContainer.mappedPort(9042),
-    )
-
+  private lazy val config = CassandraConfig.Default.copy(
+    contactPoints = Nel(cassandraContainer.containerIpAddress),
+    port = cassandraContainer.mappedPort(9042),
+  )
 
   private lazy val (cluster, clusterRelease) = {
     val cluster = CassandraCluster.of[IO](config, clusterId = 0)
     cluster.allocated.toTry.get
   }
-
 
   override def afterAll() = {
     clusterRelease.toTry.get
@@ -51,8 +49,8 @@ class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers
 
     lazy val (cassandraSync, _) = {
       val cassandraSync = for {
-        session       <- cluster.connect
-        cassandraSync  = CassandraSync.of(session, keyspace = "test", autoCreate = AutoCreate.KeyspaceAndTable.Default)
+        session <- cluster.connect
+        cassandraSync = CassandraSync.of(session, keyspace = "test", autoCreate = AutoCreate.KeyspaceAndTable.Default)
         cassandraSync <- Resource.eval(cassandraSync)
       } yield {
         val toFuture = new FunctionK[IO, Future] {
