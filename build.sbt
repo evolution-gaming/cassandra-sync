@@ -14,7 +14,8 @@ lazy val commonSettings = Seq(
   licenses := Seq(("MIT", uri("https://opensource.org/licenses/MIT"))))
 
 val alias: Seq[sbt.Def.Setting[?]] =
-  addCommandAlias("check", "all versionPolicyCheck Compile/doc") ++
+  addCommandAlias("check", "all scalafmtCheckRepo versionPolicyCheck Compile/doc") ++
+    addCommandAlias("fmt", "scalafmtRepo") ++
     addCommandAlias("build", "all compile testFull")
 
 lazy val root = project
