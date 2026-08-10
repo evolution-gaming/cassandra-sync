@@ -11,7 +11,8 @@ lazy val commonSettings = Seq(
   crossScalaVersions := Seq("2.13.18", "3.3.8"),
   Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings"),
   publishTo := Some(Resolver.evolutionReleases),
-  licenses := Seq(("MIT", uri("https://opensource.org/licenses/MIT"))))
+  licenses := Seq(("MIT", uri("https://opensource.org/licenses/MIT"))),
+)
 
 val alias: Seq[sbt.Def.Setting[?]] =
   addCommandAlias("check", "all scalafmtCheckRepo versionPolicyCheck Compile/doc") ++
@@ -19,39 +20,42 @@ val alias: Seq[sbt.Def.Setting[?]] =
     addCommandAlias("build", "all compile testFull")
 
 lazy val root = project
-  .in (file("."))
-  .settings (name := "cassandra-sync-root")
-  .settings (commonSettings)
-  .settings (alias)
-  .settings (
+  .in(file("."))
+  .settings(name := "cassandra-sync-root")
+  .settings(commonSettings)
+  .settings(alias)
+  .settings(
     publish / skip := true,
-    skip / publishArtifact := true)
+    skip / publishArtifact := true,
+  )
   .aggregate(`cassandra-sync`, tests)
 
-
 lazy val `cassandra-sync` = project
-  .in (file("cassandra-sync"))
-  .settings (name := "cassandra-sync")
-  .settings (commonSettings)
-  .settings (libraryDependencies ++= Seq(
-  `future-helper`,
-  scalatest % Test,
-  scassandra))
+  .in(file("cassandra-sync"))
+  .settings(name := "cassandra-sync")
+  .settings(commonSettings)
+  .settings(libraryDependencies ++= Seq(
+    `future-helper`,
+    scalatest % Test,
+    scassandra,
+  ))
 
 lazy val tests = project
-  .in (file("tests"))
-  .settings (name := "tests")
-  .settings (commonSettings)
-  .settings (Seq(
-  publish / skip := true,
-  skip / publishArtifact := true,
-  Test / fork := true,
-  Test / parallelExecution := false))
-  .dependsOn (`cassandra-sync` % "test->test;compile->compile")
-  .settings (libraryDependencies ++= Seq(
-  `testcontainers-cassandra` % Test,
-  Slf4j.api % Test,
-  Slf4j.`log4j-over-slf4j` % Test,
-  Logback.core % Test,
-  Logback.classic % Test,
-  scalatest % Test))
+  .in(file("tests"))
+  .settings(name := "tests")
+  .settings(commonSettings)
+  .settings(Seq(
+    publish / skip := true,
+    skip / publishArtifact := true,
+    Test / fork := true,
+    Test / parallelExecution := false,
+  ))
+  .dependsOn(`cassandra-sync` % "test->test;compile->compile")
+  .settings(libraryDependencies ++= Seq(
+    `testcontainers-cassandra` % Test,
+    Slf4j.api % Test,
+    Slf4j.`log4j-over-slf4j` % Test,
+    Logback.core % Test,
+    Logback.classic % Test,
+    scalatest % Test,
+  ))
