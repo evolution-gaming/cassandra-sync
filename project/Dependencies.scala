@@ -39,7 +39,7 @@ object Dependencies {
     val annotations = "com.fasterxml.jackson.core" % "jackson-annotations" % "2.22"
   }
 
-  val guava = "com.google.guava" % "guava" % "33.7.1-jre"
+  val guava = "com.google.guava" % "guava" % "33.7.2-jre"
 
   val overrides: Seq[ModuleID] = Netty.all ++ Seq(Jackson.core, Jackson.databind, Jackson.annotations, guava)
 }
