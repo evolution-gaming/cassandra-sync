@@ -4,8 +4,8 @@ import cats.arrow.FunctionK
 import cats.effect.unsafe.{IORuntime, implicits}
 import cats.effect.{IO, Resource}
 import com.dimafeng.testcontainers.CassandraContainer
-import com.evolutiongaming.cassandra.sync.IOSuite._
-import com.evolutiongaming.catshelper.CatsHelper._
+import com.evolutiongaming.cassandra.sync.IOSuite.*
+import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolutiongaming.catshelper.FromFuture
 import com.evolutiongaming.nel.Nel
 import com.evolutiongaming.scassandra.{CassandraCluster, CassandraConfig}
@@ -15,12 +15,12 @@ import org.scalatest.wordspec.AnyWordSpec
 import org.testcontainers.utility.DockerImageName
 
 import java.util.UUID
-import scala.concurrent._
-import scala.concurrent.duration._
+import scala.concurrent.*
+import scala.concurrent.duration.*
 import scala.util.control.NoStackTrace
 
 class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers {
-  import CassandraSyncSpec._
+  import CassandraSyncSpec.*
   private lazy val cassandraContainer = CassandraContainer(
     image = DockerImageName.parse("cassandra:3.11.7"),
   )
@@ -39,7 +39,7 @@ class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers
     cluster.allocated.toTry.get
   }
 
-  override def afterAll() = {
+  override def afterAll(): Unit = {
     clusterRelease.toTry.get
     cassandraContainer.stop()
     super.afterAll()
@@ -54,10 +54,10 @@ class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers
         cassandraSync <- Resource.eval(cassandraSync)
       } yield {
         val toFuture = new FunctionK[IO, Future] {
-          def apply[A](fa: IO[A]) = fa.toFuture
+          def apply[A](fa: IO[A]): Future[A] = fa.toFuture
         }
         val fromFuture = new FunctionK[Future, IO] {
-          def apply[A](fa: Future[A]) = FromFuture[IO].apply { fa }
+          def apply[A](fa: Future[A]): IO[A] = FromFuture[IO].apply { fa }
         }
         cassandraSync.mapK(toFuture, fromFuture)
       }

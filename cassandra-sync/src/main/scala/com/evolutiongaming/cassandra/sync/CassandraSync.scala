@@ -1,15 +1,15 @@
 package com.evolutiongaming.cassandra.sync
 
 import cats.effect.{Clock, Resource, Temporal}
-import cats.implicits._
+import cats.implicits.*
 import cats.{FlatMap, ~>}
-import com.evolutiongaming.catshelper.ClockHelper._
-import com.evolutiongaming.scassandra._
-import com.evolutiongaming.scassandra.syntax._
+import com.evolutiongaming.catshelper.ClockHelper.*
+import com.evolutiongaming.scassandra.*
+import com.evolutiongaming.scassandra.syntax.*
 
 import java.time.Instant
 import scala.concurrent.TimeoutException
-import scala.concurrent.duration._
+import scala.concurrent.duration.*
 
 trait CassandraSync[F[_]] {
 
@@ -170,7 +170,7 @@ object CassandraSync {
             expiry: FiniteDuration,
             timestamp: Instant,
             metadata: Option[String],
-          ) = {
+          ): F[Boolean] = {
             val ttl = (expiry.toSeconds max 1L).toInt
             val bound = statement
               .bind()
@@ -218,7 +218,7 @@ object CassandraSync {
         )
       } yield {
         new Delete[F] {
-          def apply(id: Id) = {
+          def apply(id: Id): F[Unit] = {
             val bound = statement
               .bind()
               .encode("id", id)
@@ -243,7 +243,7 @@ object CassandraSync {
         metadata: Option[String],
       )(
         f1: => G[A],
-      ) = {
+      ): G[A] = {
 
         f(self(id, expiry, timeout, metadata)(g(f1)))
       }
