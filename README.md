@@ -54,7 +54,7 @@ DELETE FROM keyspace.locks WHERE id = ? IF EXISTS;
 ## Setup
 
 ```scala
-addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.0.2")
+addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.1.2")
 
 libraryDependencies += "com.evolutiongaming" %% "cassandra-sync" % latestVersion
 ```
