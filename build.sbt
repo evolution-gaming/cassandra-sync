@@ -12,6 +12,8 @@ lazy val commonSettings = Seq(
   Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings"),
   publishTo := Some(Resolver.evolutionReleases),
   licenses := Seq(("MIT", uri("https://opensource.org/licenses/MIT"))),
+  dependencyOverrides ++= Dependencies.overrides,
+  versionPolicyIgnored ++= Dependencies.overrides.map(m => m.organization % m.name),
 )
 
 val alias: Seq[sbt.Def.Setting[?]] =
