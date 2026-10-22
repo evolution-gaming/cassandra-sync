@@ -3,9 +3,8 @@ package com.evolution.cassandra.sync
 import cats.effect.{Clock, Resource, Temporal}
 import cats.implicits.*
 import cats.{FlatMap, ~>}
-import com.evolutiongaming.catshelper.ClockHelper.*
-import com.evolutiongaming.scassandra.*
-import com.evolutiongaming.scassandra.syntax.*
+import com.evolution.scassandra.*
+import com.evolution.scassandra.syntax.*
 
 import java.time.Instant
 import scala.concurrent.TimeoutException
@@ -110,7 +109,7 @@ object CassandraSync {
           def timeoutError = LockAcquireTimeoutError(timeout)
 
           val checkDeadline = for {
-            now <- Clock[F].instant
+            now <- Clock[F].realTimeInstant
             _ <- if (now.toEpochMilli > deadline) timeoutError.raiseError[F, Instant] else now.pure[F]
           } yield now
 
@@ -122,6 +121,9 @@ object CassandraSync {
 
           val lock = timestamp.tailRecM { timestamp =>
             for {
+              // TODO: https://github.com/evolution-gaming/cassandra-sync/issues/273
+              // - with migration to Cassandra driver 4, the default query timeout goes from 12 seconds to 3
+              // - handle LWT op timeouts gracefully
               applied <- statements.insert(id, expiry, timestamp, metadata)
               result <- if (applied) ().asRight[Instant].pure[F] else retry.map(_.asLeft[Unit])
               _ <- Temporal[F].sleep(interval)
@@ -139,7 +141,7 @@ object CassandraSync {
         }
 
         for {
-          timestamp <- Clock[F].instant
+          timestamp <- Clock[F].realTimeInstant
           result <- lock(timestamp).use { _ => f }
         } yield result
       }
@@ -183,8 +185,7 @@ object CassandraSync {
             for {
               result <- session.execute(bound)
             } yield {
-              val row = result.one()
-              row.decode[Boolean]("[applied]")
+              result.wasApplied()
             }
           }
         }

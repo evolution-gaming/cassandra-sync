@@ -1,7 +1,7 @@
 import Dependencies.*
 
 lazy val commonSettings = Seq(
-  organization := "com.evolutiongaming",
+  organization := "com.evolution",
   homepage := Some(uri("https://github.com/evolution-gaming/cassandra-sync")),
   startYear := Some(2018),
   organizationName := "Evolution",
@@ -17,7 +17,7 @@ lazy val commonSettings = Seq(
   ),
   scalacOptions ++= crossSettings(
     scalaVersion = scalaVersion.value,
-    // Good compiler options for Scala 2.13 are coming from com.evolution:sbt-scalac-opts-plugin:0.1.0,
+    // Good compiler options for Scala 2.13 are coming from com.evolution:sbt-scalac-opts-plugin,
     // but its support for Scala 3 is limited, especially what concerns linting options.
     //
     // If Scala 3 is made the primary target, good linting scalac options for it should be added first.
@@ -41,8 +41,14 @@ lazy val commonSettings = Seq(
 
   publishTo := Some(Resolver.evolutionReleases),
   licenses := Seq(("MIT", uri("https://opensource.org/licenses/MIT"))),
-  dependencyOverrides ++= Dependencies.overrides,
-  versionPolicyIgnored ++= Dependencies.overrides.map(m => m.organization % m.name),
+
+  // to fix dependabot alerts for dependencies on which we do not depend directly
+  // https://github.com/evolution-gaming/cassandra-sync/security/dependabot
+  dependencyOverrides ++= SecurityAlertOverrides.dependencies,
+
+  // TODO: [5.0.0 release] drop after release
+  // for Cassandra driver 4 migration, the artifacts were renamed
+  versionPolicyPreviousVersions := Seq(),
 )
 
 addCommandAlias("fmt", "+all scalafmtRepo")
@@ -65,7 +71,6 @@ lazy val `cassandra-sync` = project
   .settings(name := "cassandra-sync")
   .settings(commonSettings)
   .settings(libraryDependencies ++= Seq(
-    `future-helper`,
     scalatest % Test,
     scassandra,
   ))
@@ -79,11 +84,10 @@ lazy val tests = project
     Test / fork := true,
     Test / parallelExecution := false,
   ))
-  .dependsOn(`cassandra-sync` % "test->test;compile->compile")
+  .dependsOn(`cassandra-sync`)
   .settings(libraryDependencies ++= Seq(
     `testcontainers-cassandra` % Test,
     Slf4j.api % Test,
-    Slf4j.`log4j-over-slf4j` % Test,
     Logback.core % Test,
     Logback.classic % Test,
     scalatest % Test,

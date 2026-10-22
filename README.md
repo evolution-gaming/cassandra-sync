@@ -2,12 +2,15 @@
 [![Build Status](https://github.com/evolution-gaming/cassandra-sync/workflows/CI/badge.svg)](https://github.com/evolution-gaming/cassandra-sync/actions?query=workflow%3ACI)
 [![Coverage Status](https://coveralls.io/repos/evolution-gaming/cassandra-sync/badge.svg)](https://coveralls.io/r/evolution-gaming/cassandra-sync)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/a804ed95dc044adb83f56411d7bacffc)](https://app.codacy.com/gh/evolution-gaming/cassandra-sync/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
-[![Version](https://img.shields.io/badge/version-click-blue)](https://evolution.jfrog.io/artifactory/api/search/latestVersion?g=com.evolutiongaming&a=cassandra-sync_2.13&repos=public)
+[![Version](https://img.shields.io/badge/version-click-blue)](https://evolution.jfrog.io/artifactory/api/search/latestVersion?g=com.evolution&a=cassandra-sync_3&repos=public)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
 
 This tiny library provides mechanism of `synchronization` via locks stored in Cassandra table.
 This `synchronization` is especially useful for preventing concurrent schema changes.
 Sad that concurrent schema changes [is not supported](https://issues.apache.org/jira/browse/CASSANDRA-10699) by Cassandra on it's own.
+
+The library is built on [scassandra](https://github.com/evolution-gaming/scassandra) (`scassandra-v4`),
+i.e. it uses the DataStax Java driver 4.
 
 ## Concept 
 
@@ -56,5 +59,17 @@ DELETE FROM keyspace.locks WHERE id = ? IF EXISTS;
 ```scala
 addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.1.2")
 
-libraryDependencies += "com.evolutiongaming" %% "cassandra-sync" % latestVersion
+libraryDependencies += "com.evolution" %% "cassandra-sync" % latestVersion
 ```
+
+## Migration from 4.x to 5.x
+
+Version 5.x moves from the DataStax Java driver 3 to the driver 4, which comes with the following breaking changes:
+
+* the organization is changed from `com.evolutiongaming` to `com.evolution`
+* the package is changed from `com.evolutiongaming.cassandra.sync` to `com.evolution.cassandra.sync`
+* the library depends on `"com.evolution" %% "scassandra-v4"` instead of `"com.evolutiongaming" %% "scassandra"`,
+  so `CassandraSync.of` expects `com.evolution.scassandra.CassandraSession`,
+  see the [scassandra](https://github.com/evolution-gaming/scassandra) docs on how to create it
+
+The schema and queries are unchanged, so the existing locks tables can be used as is.

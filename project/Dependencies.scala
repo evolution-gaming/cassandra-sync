@@ -3,9 +3,11 @@ import sbt.*
 object Dependencies {
 
   val scalatest = "org.scalatest" %% "scalatest" % "3.2.20"
-  val `testcontainers-cassandra` = "com.dimafeng" %% "testcontainers-scala-cassandra" % "0.44.1"
-  val `future-helper` = "com.evolutiongaming" %% "future-helper" % "1.0.7"
-  val scassandra = "com.evolutiongaming" %% "scassandra" % "5.7.0"
+  val `testcontainers-cassandra` = ("org.testcontainers" % "testcontainers-cassandra" % "2.0.5")
+    // the driver is used only by the deprecated org.testcontainers.containers.CassandraContainer,
+    // excluding it to keep driver 3 classes off the classpath of the tests for other drivers
+    .exclude("com.datastax.cassandra", "cassandra-driver-core")
+  val scassandra = "com.evolution" %% "scassandra-v4" % "5.8.0"
 
   object Logback {
     private val version = "1.6.5"
@@ -16,30 +18,24 @@ object Dependencies {
   object Slf4j {
     private val version = "2.0.20"
     val api = "org.slf4j" % "slf4j-api" % version
-    val `log4j-over-slf4j` = "org.slf4j" % "log4j-over-slf4j" % version
   }
 
-  object Netty {
-    private val version = "4.1.138.Final"
-    val all = Seq(
-      "netty-buffer",
-      "netty-codec",
-      "netty-common",
-      "netty-handler",
-      "netty-resolver",
-      "netty-transport",
-      "netty-transport-native-unix-common",
-    ).map("io.netty" % _ % version)
+  // https://github.com/evolution-gaming/cassandra-sync/security/dependabot
+  // Version overrides to fix dependabot alerts go here:
+  object SecurityAlertOverrides {
+    private object Jackson {
+      private val version = "2.22.4"
+
+      val databind = "com.fasterxml.jackson.core" % "jackson-databind" % version
+      val core = "com.fasterxml.jackson.core" % "jackson-core" % version
+    }
+
+    private val nettyHandler = "io.netty" % "netty-handler" % "4.1.139.Final"
+
+    val dependencies: Seq[ModuleID] = Seq(
+      Jackson.databind,
+      Jackson.core,
+      nettyHandler,
+    )
   }
-
-  object Jackson {
-    private val version = "2.22.3"
-    val core = "com.fasterxml.jackson.core" % "jackson-core" % version
-    val databind = "com.fasterxml.jackson.core" % "jackson-databind" % version
-    val annotations = "com.fasterxml.jackson.core" % "jackson-annotations" % "2.22"
-  }
-
-  val guava = "com.google.guava" % "guava" % "33.7.2-jre"
-
-  val overrides: Seq[ModuleID] = Netty.all ++ Seq(Jackson.core, Jackson.databind, Jackson.annotations, guava)
 }

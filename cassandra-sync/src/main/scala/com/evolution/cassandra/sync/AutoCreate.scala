@@ -1,6 +1,6 @@
 package com.evolution.cassandra.sync
 
-import com.evolutiongaming.scassandra.ReplicationStrategyConfig
+import com.evolution.scassandra.ReplicationStrategyConfig
 
 sealed trait AutoCreate
 
