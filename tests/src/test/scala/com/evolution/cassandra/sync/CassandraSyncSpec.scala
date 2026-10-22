@@ -1,10 +1,10 @@
-package com.evolutiongaming.cassandra.sync
+package com.evolution.cassandra.sync
 
 import cats.arrow.FunctionK
 import cats.effect.unsafe.{IORuntime, implicits}
 import cats.effect.{IO, Resource}
 import com.dimafeng.testcontainers.CassandraContainer
-import com.evolutiongaming.cassandra.sync.IOSuite.*
+import com.evolution.cassandra.sync.IOSuite.*
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolutiongaming.catshelper.FromFuture
 import com.evolutiongaming.nel.Nel

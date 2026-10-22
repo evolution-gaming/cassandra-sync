@@ -1,4 +1,4 @@
-package com.evolutiongaming.cassandra.sync
+package com.evolution.cassandra.sync
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
