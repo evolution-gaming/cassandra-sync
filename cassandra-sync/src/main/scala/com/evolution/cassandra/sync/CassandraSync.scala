@@ -1,29 +1,83 @@
 package com.evolution.cassandra.sync
 
-import cats.effect.{Clock, Resource, Temporal}
+import cats.effect.*
 import cats.implicits.*
-import cats.{FlatMap, ~>}
+import cats.~>
+import com.datastax.oss.driver.api.core.cql.AsyncResultSet
+import com.evolution.cassandra.sync.impl.{CassandraSyncImpl, LockStatements, LockStore}
 import com.evolution.scassandra.*
-import com.evolution.scassandra.syntax.*
 
-import java.time.Instant
-import scala.concurrent.TimeoutException
 import scala.concurrent.duration.*
 
+/**
+ * Distributed lock implemented using Cassandra lightweight transactions.
+ *
+ * The main use case is serializing actions which must not run concurrently across multiple
+ * application nodes, such as Cassandra schema changes.
+ *
+ * Use [[CassandraSync.of]] to create an instance:
+ * {{{
+ * for {
+ *   cassandraSync <- CassandraSync.of[IO](session, keyspace = "app")
+ *   result <- cassandraSync(id = "migrate-schema") {
+ *     // runs strictly sequentially with other sections protected by the same lock ID
+ *     migrateSchema
+ *   }
+ * } yield result
+ * }}}
+ */
 trait CassandraSync[F[_]] {
 
+  /*
+  TODO: https://github.com/evolution-gaming/cassandra-sync/issues/269
+  Refactor API to look like CE mutex?
+  deprecating the apply method
+  
+  def run: IO[Unit] = {
+    Mutex[IO].flatMap { mutex =>
+      // Wrap the action inside the lock
+      def securedAction(id: Int): IO[Unit] =
+        mutex.lock.surround(criticalAction(id))
+
+      // Run multiple tasks concurrently to demonstrate serial execution
+      List(1, 2, 3)
+        .parTraverse(id => securedAction(id))
+        .void
+    }
+  }
+   */
+
   /**
+   * Acquires the lock by ID, runs `f` and releases the lock once `f` terminates, fails or gets
+   * interrupted.
+   *
+   * If the lock is held by someone else, acquisition is retried until it succeeds or `timeout`
+   * passes. In the latter case the resulting effect fails with [[LockAcquireTimeoutError]] and `f`
+   * is not run.
+   *
+   * Please note that `expiry` timeout should be larger than `f` expected max run time. In case if
+   * lock expiration hits before protected sections finished, another contender could take the same
+   * lock.
+   *
+   * The lock is not reentrant: acquiring a lock with the same ID from within `f` will not succeed
+   * until the outer lock expires.
+   *
    * @param id
    *   lock id
    * @param expiry
-   *   when to expiry the lock in case it was not removed gracefully
+   *   when to expire the lock in case it was not removed gracefully, e.g. if JVM crashed
    * @param timeout
-   *   time given for acquiring the lock before timeout exception is thrown
+   *   time given for acquiring the lock before [[LockAcquireTimeoutError]] is raised, it doesn't
+   *   limit the run time of `f`
    * @param metadata
    *   you can provide additional information for tracing origin of lock
+   * @param f
+   *   the action to run while holding the lock
+   * @return
+   *   result of `f`
    */
   def apply[A](
-    id: CassandraSync.Id,
+    id: String,
     expiry: FiniteDuration = 1.minute,
     timeout: FiniteDuration = 1.minute,
     metadata: Option[String] = None,
@@ -32,15 +86,34 @@ trait CassandraSync[F[_]] {
   ): F[A]
 }
 
+/**
+ * Factory methods and syntax extensions for [[CassandraSync]].
+ */
 object CassandraSync {
 
-  type Id = String
-
-  implicit val finiteDurationEncodeByName: EncodeByName[FiniteDuration] = EncodeByName[Long].contramap(_.toMillis)
-
-  implicit val finiteDurationDecodeByName: DecodeByName[FiniteDuration] = DecodeByName[Long].map(_.millis)
-
-  def of[F[_]: Temporal](
+  /**
+   * Creates a [[CassandraSync]] instance storing locks in `keyspace.table`.
+   *
+   * Depending on `autoCreate`, the keyspace and the table are created if they don't exist yet. With
+   * [[AutoCreate.None]] the table has to exist before calling this method, as lock statements are
+   * prepared during creation.
+   *
+   * Please note that concurrent schema changes are not supported by Cassandra, so creating the
+   * table from several application nodes at once might fail. It is better to create the table in
+   * advance, see the table definition in the README.
+   *
+   * @param session
+   *   Cassandra session used to create the schema and to run lock queries
+   * @param keyspace
+   *   keyspace of the locks table
+   * @param table
+   *   name of the locks table
+   * @param autoCreate
+   *   whether to create the table and, optionally, the keyspace, see [[AutoCreate]]
+   * @param interval
+   *   interval between lock acquisition attempts while the lock is held by someone else
+   */
+  def of[F[_]: Async](
     session: CassandraSession[F],
     keyspace: String,
     table: String = "locks",
@@ -48,24 +121,16 @@ object CassandraSync {
     interval: FiniteDuration = 100.millis,
   ): F[CassandraSync[F]] = {
 
-    val keyspaceTable = s"$keyspace.$table"
+    val statements = new LockStatements(keyspace = keyspace, table = table)
 
-    def createTable = {
-      session.execute(
-        s"CREATE TABLE IF NOT EXISTS $keyspaceTable (" +
-          "id text PRIMARY KEY, " +
-          "expiry_ms BIGINT, " +
-          "timestamp TIMESTAMP," +
-          "metadata TEXT)",
-      ).void
-    }
+    def createTable: F[Unit] = session.execute(statements.CreateTableIfNotExists).void
 
-    def createKeyspace(replicationStrategy: ReplicationStrategyConfig) = {
+    def createKeyspace(replicationStrategy: ReplicationStrategyConfig): F[AsyncResultSet] = {
       val query = CreateKeyspaceIfNotExists(keyspace, replicationStrategy)
       session.execute(query)
     }
 
-    def createTableAndKeyspace(replicationStrategy: ReplicationStrategyConfig) = for {
+    def createTableAndKeyspace(replicationStrategy: ReplicationStrategyConfig): F[Unit] = for {
       _ <- createKeyspace(replicationStrategy)
       _ <- createTable
     } yield {}
@@ -78,167 +143,30 @@ object CassandraSync {
 
     for {
       _ <- created
-      insert <- Insert.of(keyspaceTable, session)
-      delete <- Delete.of(keyspaceTable, session)
-    } yield {
-      val statements = Statements(insert = insert, delete = delete)
-      apply(interval, statements)
-    }
+      lockStore <- LockStore.of(session, statements)
+    } yield new CassandraSyncImpl[F](lockStore, pollInterval = interval)
   }
 
-  def apply[F[_]: Temporal](
-    interval: FiniteDuration,
-    statements: Statements[F],
-  ): CassandraSync[F] = {
-
-    new CassandraSync[F] {
-
-      def apply[A](
-        id: String,
-        expiry: FiniteDuration,
-        timeout: FiniteDuration,
-        metadata: Option[String],
-      )(
-        f: => F[A],
-      ): F[A] = {
-
-        def lock(timestamp: Instant) = {
-
-          val deadline = timestamp.toEpochMilli + timeout.toMillis
-
-          def timeoutError = LockAcquireTimeoutError(timeout)
-
-          val checkDeadline = for {
-            now <- Clock[F].realTimeInstant
-            _ <- if (now.toEpochMilli > deadline) timeoutError.raiseError[F, Instant] else now.pure[F]
-          } yield now
-
-          def retry = for {
-            _ <- checkDeadline
-            _ <- Temporal[F].sleep(interval)
-            timestamp <- checkDeadline
-          } yield timestamp
-
-          val lock = timestamp.tailRecM { timestamp =>
-            for {
-              // TODO: https://github.com/evolution-gaming/cassandra-sync/issues/273
-              // - with migration to Cassandra driver 4, the default query timeout goes from 12 seconds to 3
-              // - handle LWT op timeouts gracefully
-              applied <- statements.insert(id, expiry, timestamp, metadata)
-              result <- if (applied) ().asRight[Instant].pure[F] else retry.map(_.asLeft[Unit])
-              _ <- Temporal[F].sleep(interval)
-            } yield result
-          }
-
-          val unlock = statements.delete(id)
-
-          val result = for {
-            a <- lock
-          } yield {
-            (a, unlock)
-          }
-          Resource(result)
-        }
-
-        for {
-          timestamp <- Clock[F].realTimeInstant
-          result <- lock(timestamp).use { _ => f }
-        } yield result
-      }
-    }
-  }
-
-  trait Insert[F[_]] {
-
-    def apply(
-      id: Id,
-      expiry: FiniteDuration,
-      timestamp: Instant,
-      metadata: Option[String],
-    ): F[Boolean]
-  }
-
-  object Insert {
-
-    def of[F[_]: FlatMap](table: String, session: CassandraSession[F]): F[Insert[F]] = {
-      val query =
-        s"INSERT INTO $table (id, expiry_ms, timestamp, metadata) VALUES (?, ?, ?, ?) IF NOT EXISTS USING TTL ?"
-      for {
-        statement <- session.prepare(query)
-      } yield {
-        new Insert[F] {
-          def apply(
-            id: Id,
-            expiry: FiniteDuration,
-            timestamp: Instant,
-            metadata: Option[String],
-          ): F[Boolean] = {
-            val ttl = (expiry.toSeconds max 1L).toInt
-            val bound = statement
-              .bind()
-              .encode("id", id)
-              .encode("expiry_ms", expiry)
-              .encode("timestamp", timestamp)
-              .encode("metadata", metadata)
-              .encode("[ttl]", ttl)
-              .setIdempotent(true)
-            for {
-              result <- session.execute(bound)
-            } yield {
-              result.wasApplied()
-            }
-          }
-        }
-      }
-    }
-  }
-
-  trait Delete[F[_]] {
-
-    def apply(id: Id): F[Unit]
-  }
-
-  object Delete {
-
-    def of[F[_]: FlatMap](table: String, session: CassandraSession[F]): F[Delete[F]] = {
-      for {
-        statement <- session.prepare(
-          /*
-          DELETE should also be a LWT op as mixing LWT and normal ops is prohibited:
-          https://docs.datastax.com/en/ddac/doc/datastax_enterprise/dbInternals/dbIntLtwtTransactions.html
-
-          Lightweight transactions will block other lightweight transactions from occurring,
-          but will not stop normal read and write operations from occurring.
-          Lightweight transactions use a timestamping mechanism different from normal operations,
-          so mixing lightweight transactions and normal operations can result in errors.
-          If lightweight transactions are used to write to a row within a partition,
-          only lightweight transactions for both read and write operations should be used.
-          This caution applies to all operations, whether individual or batched.
-           */
-          s"DELETE FROM $table WHERE id = ? IF EXISTS",
-        )
-      } yield {
-        new Delete[F] {
-          def apply(id: Id): F[Unit] = {
-            val bound = statement
-              .bind()
-              .encode("id", id)
-              .setIdempotent(true)
-            session.execute(bound).void
-          }
-        }
-      }
-    }
-  }
-
-  final case class Statements[F[_]](insert: Insert[F], delete: Delete[F])
-
+  /**
+   * Syntax extensions for [[CassandraSync]]
+   */
   implicit class CassandraSyncOps[F[_]](val self: CassandraSync[F]) extends AnyVal {
 
+    /**
+     * Changes the effect type of [[CassandraSync]] from `F` to `G`.
+     *
+     * Both directions are required, as the protected action given in `G` has to be run in `F` under
+     * the lock.
+     *
+     * @param f
+     *   converts the locked section, including lock acquisition and release, from `F` to `G`
+     * @param g
+     *   converts the protected action from `G` to `F`
+     */
     def mapK[G[_]](f: F ~> G, g: G ~> F): CassandraSync[G] = new CassandraSync[G] {
 
       def apply[A](
-        id: Id,
+        id: String,
         expiry: FiniteDuration,
         timeout: FiniteDuration,
         metadata: Option[String],
@@ -251,6 +179,3 @@ object CassandraSync {
     }
   }
 }
-
-case class LockAcquireTimeoutError(timeout: FiniteDuration)
-extends TimeoutException(s"Failed to acquire lock within $timeout")

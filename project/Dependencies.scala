@@ -8,6 +8,8 @@ object Dependencies {
     // excluding it to keep driver 3 classes off the classpath of the tests for other drivers
     .exclude("com.datastax.cassandra", "cassandra-driver-core")
   val scassandra = "com.evolution" %% "scassandra-v4" % "5.8.0"
+  // should match the cats-effect version coming transitively from scassandra
+  val `cats-effect-testkit` = "org.typelevel" %% "cats-effect-testkit" % "3.7.1"
 
   object Logback {
     private val version = "1.6.5"
