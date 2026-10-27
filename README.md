@@ -1,4 +1,5 @@
 # cassandra-sync
+
 [![Build Status](https://github.com/evolution-gaming/cassandra-sync/workflows/CI/badge.svg)](https://github.com/evolution-gaming/cassandra-sync/actions?query=workflow%3ACI)
 [![Coverage Status](https://coveralls.io/repos/evolution-gaming/cassandra-sync/badge.svg)](https://coveralls.io/r/evolution-gaming/cassandra-sync)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/a804ed95dc044adb83f56411d7bacffc)](https://app.codacy.com/gh/evolution-gaming/cassandra-sync/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
@@ -7,12 +8,13 @@
 
 This tiny library provides mechanism of `synchronization` via locks stored in Cassandra table.
 This `synchronization` is especially useful for preventing concurrent schema changes.
-Sad that concurrent schema changes [is not supported](https://issues.apache.org/jira/browse/CASSANDRA-10699) by Cassandra on it's own.
+Sad that concurrent schema changes [is not supported](https://issues.apache.org/jira/browse/CASSANDRA-10699) by
+Cassandra on it's own.
 
 The library is built on [scassandra](https://github.com/evolution-gaming/scassandra) (`scassandra-v4`),
 i.e. it uses the DataStax Java driver 4.
 
-## Concept 
+## Concept
 
 Basically this is a mutex implementation via records stored in cassandra.
 We insert record in order to acquire the lock and remove record when done.
@@ -25,7 +27,7 @@ There is nice [statement](https://stackoverflow.com/a/34558/301517) which ideall
 def example(session: CassandraSession[IO]) = {
   for {
     cassandraSync <- CassandraSync.of(session, keyspace = "app")
-    result        <- cassandraSync("id", expiry = 3.seconds, timeout = 10.seconds) {
+    result <- cassandraSync("id", expiry = 3.seconds, timeout = 10.seconds) {
       // put your code here 
       // the lock in cassandra per id will ensure that your code runs strictly sequentially
     }
@@ -35,8 +37,10 @@ def example(session: CassandraSession[IO]) = {
 
 ## Schema & queries
 
-So you still need to create table to store locks there and better don't let app to do that, especially concurrently from different nodes.
-At [Evolution Gaming](https://www.evolutiongaming.com) this table is created along with keyspace creation by ops department.
+So you still need to create table to store locks there and better don't let app to do that, especially concurrently from
+different nodes.
+At [Evolution](https://www.evolution.com) this table is created along with keyspace creation by ops
+department.
 
 ```cql
 CREATE TABLE IF NOT EXISTS keyspace.locks(
@@ -71,5 +75,12 @@ Version 5.x moves from the DataStax Java driver 3 to the driver 4, which comes w
 * the library depends on `"com.evolution" %% "scassandra-v4"` instead of `"com.evolutiongaming" %% "scassandra"`,
   so `CassandraSync.of` expects `com.evolution.scassandra.CassandraSession`,
   see the [scassandra](https://github.com/evolution-gaming/scassandra) docs on how to create it
+* `CassandraSync.of` requires `Async[F]` instead of `Temporal[F]`
+* the lock implementation is now internal, `CassandraSync.of` is the only way to create an instance:
+    * `CassandraSync.apply(interval, statements)`, `CassandraSync.Insert`, `CassandraSync.Delete`
+      and `CassandraSync.Statements` are removed
+    * the `CassandraSync.Id` type alias is removed, use `String` instead
+    * the implicit `FiniteDuration` codecs `CassandraSync.finiteDurationEncodeByName` and
+      `CassandraSync.finiteDurationDecodeByName` are removed, define your own if you relied on them
 
 The schema and queries are unchanged, so the existing locks tables can be used as is.

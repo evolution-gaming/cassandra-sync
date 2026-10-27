@@ -64,7 +64,7 @@ lazy val root = project
   .settings(
     publish / skip := true,
   )
-  .aggregate(`cassandra-sync`, tests)
+  .aggregate(`cassandra-sync`, integrationTests)
 
 lazy val `cassandra-sync` = project
   .in(file("cassandra-sync"))
@@ -72,12 +72,13 @@ lazy val `cassandra-sync` = project
   .settings(commonSettings)
   .settings(libraryDependencies ++= Seq(
     scalatest % Test,
+    `cats-effect-testkit` % Test,
     scassandra,
   ))
 
-lazy val tests = project
-  .in(file("tests"))
-  .settings(name := "tests")
+lazy val integrationTests = project
+  .in(file("integration-tests"))
+  .settings(name := "integration-tests")
   .settings(commonSettings)
   .settings(Seq(
     publish / skip := true,
