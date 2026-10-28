@@ -70,7 +70,7 @@ libraryDependencies += "com.evolution" %% "cassandra-sync" % latestVersion
 
 ## Migration from 4.x to 5.x
 
-Version 5.x moves from the DataStax Java driver 3 to the driver 4, which comes with the following breaking changes:
+Version 5.x moves from the DataStax Java driver 3 to the driver 4, which comes with the following notable changes:
 
 * the organization is changed from `com.evolutiongaming` to `com.evolution`
 * the package is changed from `com.evolutiongaming.cassandra.sync` to `com.evolution.cassandra.sync`
@@ -86,5 +86,7 @@ Version 5.x moves from the DataStax Java driver 3 to the driver 4, which comes w
       `CassandraSync.finiteDurationDecodeByName` are removed, define your own if you relied on them
 * the lock record TTL is computed by rounding `expiry` up to whole seconds instead of down,
   e.g. `expiry = 1500.millis` now results in 2 seconds TTL instead of 1 second
+* in the 4.x implementation, the sleep time between attempts (`pollInterval`) was incorrectly applied,
+  effectively doubling the sleep time and sleeping even after successful attempts
 
 The schema and queries are unchanged, so the existing locks tables can be used as is.

@@ -53,7 +53,13 @@ trait CassandraSync[F[_]] {
    *
    * If the lock is held by someone else, acquisition is retried until it succeeds or `timeout`
    * passes. In the latter case the resulting effect fails with [[LockAcquireTimeoutError]] and `f`
-   * is not run.
+   * is not run. A lock acquisition query which is in progress when `timeout` passes is not
+   * interrupted though: if it acquires the lock, `f` is run as usual, otherwise the error is raised
+   * once the query completes.
+   *
+   * Waiting for the lock can be canceled, in which case `f` is not run either. As with `timeout`, a
+   * lock acquisition query which is already in progress is not interrupted, so cancellation might
+   * be delayed by up to the query duration.
    *
    * Please note that `expiry` timeout should be larger than `f` expected max run time. In case if
    * lock expiration hits before protected sections finished, another contender could take the same
@@ -69,7 +75,8 @@ trait CassandraSync[F[_]] {
    *   is translated into a Cassandra lock row expiration TTL, which is rounded up to seconds, if <
    *   1s, 1s TTL is used;
    * @param timeout
-   *   time given for acquiring the lock before [[LockAcquireTimeoutError]] is raised, it doesn't
+   *   time given for acquiring the lock before [[LockAcquireTimeoutError]] is raised, might be
+   *   exceeded by up to the duration of a lock acquisition query in progress, see above; it doesn't
    *   limit the run time of `f`
    * @param metadata
    *   you can provide additional information for tracing origin of lock
