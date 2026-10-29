@@ -19,6 +19,8 @@ i.e. it uses the DataStax Java driver 4.
 Basically this is a mutex implementation via records stored in cassandra.
 We insert record in order to acquire the lock and remove record when done.
 We also provide expiry duration per lock in case we failed to remove record.
+The expiry is applied as the record TTL in Cassandra, so it is rounded up to whole seconds,
+and expiry below 1 second results in 1 second TTL.
 There is nice [statement](https://stackoverflow.com/a/34558/301517) which ideally describes the concept.
 
 ## Usage
@@ -82,5 +84,7 @@ Version 5.x moves from the DataStax Java driver 3 to the driver 4, which comes w
     * the `CassandraSync.Id` type alias is removed, use `String` instead
     * the implicit `FiniteDuration` codecs `CassandraSync.finiteDurationEncodeByName` and
       `CassandraSync.finiteDurationDecodeByName` are removed, define your own if you relied on them
+* the lock record TTL is computed by rounding `expiry` up to whole seconds instead of down,
+  e.g. `expiry = 1500.millis` now results in 2 seconds TTL instead of 1 second
 
 The schema and queries are unchanged, so the existing locks tables can be used as is.

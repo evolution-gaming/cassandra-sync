@@ -26,7 +26,7 @@ private[sync] trait LockStore[F[_]] {
    * @param id
    *   lock ID
    * @param expiry
-   *   lock row expiration TTL, rounded down to seconds, if < 1s, 1s TTL is used
+   *   lock row expiration TTL, rounded up to seconds, if < 1s, 1s TTL is used
    * @param timestamp
    *   acquisition timestamp
    * @param metadata
@@ -79,9 +79,13 @@ private[sync] object LockStore {
    * Lock row TTL in seconds for the given `expiry`, see [[LockStore.insertIfNotExists]].
    */
   def ttlSeconds(expiry: FiniteDuration): Int = {
-    // TODO: https://github.com/evolution-gaming/cassandra-sync/issues/274 change to round up
-    // TODO: handle large expiry seconds toInt overflow - should be an error?
-    (expiry.toSeconds max 1L).toInt
+    val nanosInSecond: Long = 1_000_000_000L
+
+    val nanos: Long = math.max(expiry.toNanos, nanosInSecond)
+    // use Math.ceilDiv when switched to JDK 18+
+    val secondsLong = nanos / nanosInSecond + math.signum(nanos % nanosInSecond)
+    // this one prevents overflow going into negative values
+    math.min(secondsLong, Int.MaxValue.toLong).toInt
   }
 }
 

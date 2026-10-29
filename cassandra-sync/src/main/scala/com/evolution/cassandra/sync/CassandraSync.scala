@@ -65,7 +65,9 @@ trait CassandraSync[F[_]] {
    * @param id
    *   lock id
    * @param expiry
-   *   when to expire the lock in case it was not removed gracefully, e.g. if JVM crashed
+   *   when to expire the lock in case it was not removed gracefully, e.g. if JVM crashed; the value
+   *   is translated into a Cassandra lock row expiration TTL, which is rounded up to seconds, if <
+   *   1s, 1s TTL is used;
    * @param timeout
    *   time given for acquiring the lock before [[LockAcquireTimeoutError]] is raised, it doesn't
    *   limit the run time of `f`
