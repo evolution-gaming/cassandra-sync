@@ -69,10 +69,7 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
       }
     }
 
-    // TODO: https://github.com/evolution-gaming/cassandra-sync/issues/276
-    // fix lock acquisition being uncancelable - CassandraSyncImpl acquires via Resource.apply,
-    // so cancellation waits until the lock is acquired or the timeout is hit
-    "be cancelable while waiting for the lock" ignore runTestControl {
+    "be cancelable while waiting for the lock" in runTestControl {
       val timeout = 1.minute
       for {
         store <- InMemoryLockStore.make
@@ -89,11 +86,28 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
       } yield {
         val (cancelElapsedTime, _) = cancelElapsedTimeWithUnit
         // cancellation should interrupt polling instead of waiting for the timeout
-        cancelElapsedTime.toCoarsest should be <= PollInterval * 2
+        cancelElapsedTime.toCoarsest should be <= PollInterval
         waitingFiberOutcome.isCanceled shouldBe true
         fStartedResult shouldBe false
         // the lock of the current holder must not be removed
         lockDataAfterCancel.map(_.timestamp) shouldEqual startTime.some
+      }
+    }
+
+    "release the lock if canceled while the lock insert is in flight" in runTestControl {
+      for {
+        store <- InMemoryLockStore.make
+        fStarted <- Ref.of[IO, Boolean](false)
+        acquiringFiber <- cassandraSync(slowInsertLockStore(store, 1.second))(Id)(fStarted.set(true)).start
+        _ <- IO.sleep(500.millis)
+        _ <- acquiringFiber.cancel
+        acquiringFiberOutcome <- acquiringFiber.join
+        fStartedResult <- fStarted.get
+        lockDataAfterCancel <- store.get(Id)
+      } yield {
+        acquiringFiberOutcome.isCanceled shouldBe true
+        fStartedResult shouldBe false
+        lockDataAfterCancel shouldEqual None
       }
     }
 
@@ -223,8 +237,47 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
         val (syncCallElapsedTime, syncCallResult) = syncCallElapsedTimeWithResult
         syncCallResult shouldEqual LockAcquireTimeoutError(timeout).asLeft
         syncCallElapsedTime should be >= timeout
-        // current implementation sleep twice for PollInterval between attempts
-        syncCallElapsedTime should be <= timeout + PollInterval * 2
+        syncCallElapsedTime should be <= timeout + PollInterval
+        fStartedResult shouldBe false
+        // the lock of the current holder must not be removed
+        lockDataAfterAttempt.map(_.timestamp) shouldEqual startTime.some
+      }
+    }
+
+    "run the function if the lock insert in flight at the timeout acquires the lock" in runTestControl {
+      val timeout = 1.second
+      val insertDuration = 2.seconds
+      for {
+        store <- InMemoryLockStore.make
+        sync = cassandraSync(slowInsertLockStore(store, insertDuration))
+        syncCallElapsedTimeWithResult <- sync(Id, timeout = timeout)(store.get(Id)).attempt.timed
+        lockDataAfterRelease <- store.get(Id)
+      } yield {
+        val (syncCallElapsedTime, syncCallResult) = syncCallElapsedTimeWithResult
+        // the lock is taken while running the function
+        syncCallResult.map(_.isDefined) shouldEqual true.asRight
+        syncCallElapsedTime shouldEqual insertDuration
+        lockDataAfterRelease shouldEqual None
+      }
+    }
+
+    "fail with LockAcquireTimeoutError after the lock insert in flight at the timeout completes" in runTestControl {
+      val timeout = 1.second
+      val insertDuration = 2.seconds
+      for {
+        store <- InMemoryLockStore.make
+        sync = cassandraSync(slowInsertLockStore(store, insertDuration))
+        startTime <- IO.realTimeInstant
+        _ <- store.insertIfNotExists(Id, 1.hour, startTime, metadata = None)
+        fStarted <- Ref.of[IO, Boolean](false)
+        syncCallElapsedTimeWithResult <- sync(Id, timeout = timeout)(fStarted.set(true)).attempt.timed
+        fStartedResult <- fStarted.get
+        lockDataAfterAttempt <- store.get(Id)
+      } yield {
+        val (syncCallElapsedTime, syncCallResult) = syncCallElapsedTimeWithResult
+        syncCallResult shouldEqual LockAcquireTimeoutError(timeout).asLeft
+        // the error is raised only once the insert completes, not when the timeout passes
+        syncCallElapsedTime shouldEqual insertDuration
         fStartedResult shouldBe false
         // the lock of the current holder must not be removed
         lockDataAfterAttempt.map(_.timestamp) shouldEqual startTime.some
@@ -296,6 +349,23 @@ object CassandraSyncImplSpec {
     ): IO[Boolean] = IO.pure(true)
 
     override def delete(id: String): IO[Unit] = IO.raiseError(ReleaseError)
+  }
+
+  /**
+   * Lock store which, like a real query, applies the lock insert regardless of the caller being
+   * canceled, while the response arrives after `insertDuration`.
+   */
+  private def slowInsertLockStore(store: LockStore[IO], insertDuration: FiniteDuration): LockStore[IO] = {
+    new LockStore[IO] {
+      override def insertIfNotExists(
+        id: String,
+        expiry: FiniteDuration,
+        timestamp: Instant,
+        metadata: Option[String],
+      ): IO[Boolean] = store.insertIfNotExists(id, expiry, timestamp, metadata) <* IO.sleep(insertDuration)
+
+      override def delete(id: String): IO[Unit] = store.delete(id)
+    }
   }
 
   private def cassandraSync(lockStore: LockStore[IO]): CassandraSync[IO] = {
