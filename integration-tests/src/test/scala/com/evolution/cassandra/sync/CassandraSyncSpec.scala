@@ -2,39 +2,49 @@ package com.evolution.cassandra.sync
 
 import cats.arrow.FunctionK
 import cats.effect.*
-import com.datastax.oss.driver.api.core.CqlSessionBuilder
-import com.evolution.scassandra.*
-import org.scalatest.BeforeAndAfterAll
-import org.scalatest.matchers.should.Matchers
-import org.scalatest.wordspec.AnyWordSpec
+import org.scalatest.DoNotDiscover
 
 import java.util.UUID
 import scala.concurrent.*
 import scala.concurrent.duration.*
 import scala.util.control.NoStackTrace
 
-class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers with IntegrationIOSuite {
-  import CassandraSyncSpec.*
+@DoNotDiscover // will be combined in Suites to share test resources
+class CassandraSyncSpec(testCassandra: SharedTestCassandra) extends BaseCassandraSpec(testCassandra) {
 
-  // default testcontainers startup timeout is 60 seconds
-  private lazy val (cassandraSync, resourcesRelease) = runResources.allocated.run(timeout = 65.seconds)
-  private lazy val cassandraSyncFuture: CassandraSync[Future] = {
-    val toFuture = new FunctionK[IO, Future] {
-      def apply[A](fa: IO[A]): Future[A] = fa.unsafeToFuture()
-    }
-    val fromFuture = new FunctionK[Future, IO] {
-      def apply[A](fa: Future[A]): IO[A] = IO.fromFuture(IO.pure(fa))
-    }
+  // the locks table with the current schema is created by CassandraSync
+  private lazy val currentSchemaKeyspace = ensureTestKeyspace("current")
+  // the locks table with the 4.x schema is created before all the tests, as if it was created by cassandra-sync 4.x
+  private lazy val schema4xKeyspace = ensureTestKeyspace("4x")
 
-    cassandraSync.mapK(toFuture, fromFuture)
+  private lazy val currentSchemaCassandraSyncFuture: CassandraSync[Future] = toFuture(
+    CassandraSync.of(
+      session,
+      keyspace = currentSchemaKeyspace,
+      autoCreate = AutoCreate.Table,
+    ).run(),
+  )
+  private lazy val schema4xCassandraSyncFuture: CassandraSync[Future] = toFuture(
+    CassandraSync.of(
+      session,
+      keyspace = schema4xKeyspace,
+    ).run(),
+  )
+
+  override protected def beforeAll(): Unit = {
+    super.beforeAll()
+    session.execute(LockStatements4x.createTableIfNotExists(schema4xKeyspace, "locks")).void.run()
   }
 
-  override def afterAll(): Unit = {
-    resourcesRelease.run()
-    super.afterAll()
+  "CassandraSync with the current table schema" should {
+    behave like cassandraSync(currentSchemaCassandraSyncFuture)
   }
 
-  "CassandraSync" should {
+  "CassandraSync with the 4.x table schema" should {
+    behave like cassandraSync(schema4xCassandraSyncFuture)
+  }
+
+  private def cassandraSync(cassandraSyncFuture: => CassandraSync[Future]): Unit = {
 
     "execute functions one by one" in new Scope {
       val promise = Promise[Int]()
@@ -80,25 +90,18 @@ class CassandraSyncSpec extends AnyWordSpec with BeforeAndAfterAll with Matchers
     }
   }
 
-  private trait Scope {
-    val id = UUID.randomUUID().toString
+  private def toFuture(cassandraSync: CassandraSync[IO]): CassandraSync[Future] = {
+    val toFuture = new FunctionK[IO, Future] {
+      def apply[A](fa: IO[A]): Future[A] = fa.unsafeToFuture()
+    }
+    val fromFuture = new FunctionK[Future, IO] {
+      def apply[A](fa: Future[A]): IO[A] = IO.fromFuture(IO { fa })
+    }
+
+    cassandraSync.mapK(toFuture, fromFuture)
   }
-}
 
-object CassandraSyncSpec {
-
-  private def runResources: ResourceIO[CassandraSync[IO]] = {
-    for {
-      cassandra <- TestCassandra.run
-      sessionBuilder = new CqlSessionBuilder()
-        .addContactPoint(cassandra.getContactPoint)
-        .withLocalDatacenter(cassandra.getLocalDatacenter)
-      session <- CassandraSession.make[IO](sessionBuilder)
-      sync <- Resource.eval(CassandraSync.of(
-        session,
-        keyspace = "test",
-        autoCreate = AutoCreate.KeyspaceAndTable.Default,
-      ))
-    } yield sync
+  private trait Scope {
+    val id: String = UUID.randomUUID().toString
   }
 }

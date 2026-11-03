@@ -23,6 +23,14 @@ The expiry is applied as the record TTL in Cassandra, so it is rounded up to who
 and expiry below 1 second results in 1 second TTL.
 There is nice [statement](https://stackoverflow.com/a/34558/301517) which ideally describes the concept.
 
+Each lock acquisition is tagged with a unique acquisition ID stored in the record. This makes the lock operations safe
+in the following cases:
+
+* the record is removed only if it still belongs to the same acquisition, so if the lock expired and got taken by
+  another contender, releasing the stale lock doesn't remove the record of the new owner
+* the acquisition query can be safely retried: if a previous attempt timed out but got applied in Cassandra,
+  the retry recognizes the existing record as its own instead of waiting for it to expire
+
 ## Usage
 
 ```scala
@@ -47,18 +55,23 @@ department.
 ```cql
 CREATE TABLE IF NOT EXISTS keyspace.locks(
   id TEXT PRIMARY KEY,
+  acquisition_id UUID,
   expiry_ms BIGINT,
   timestamp TIMESTAMP,
   metadata TEXT);
 
 -- Acquire lock
-INSERT INTO keyspace.locks (id, expiry_ms, timestamp, metadata) VALUES (?, ?, ?, ?)
+-- If not applied, the acquisition_id of the existing record is checked to tell whether it is our own lock
+INSERT INTO keyspace.locks (id, acquisition_id, expiry_ms, timestamp, metadata) VALUES (?, ?, ?, ?, ?)
   IF NOT EXISTS USING TTL ?;
 
 -- Release lock
 -- This DELETE should also be a LWT op as mixing LWT and normal ops is prohibited
-DELETE FROM keyspace.locks WHERE id = ? IF EXISTS;
+DELETE FROM keyspace.locks WHERE id = ? IF acquisition_id = ?;
 ```
+
+Tables created by cassandra-sync 4.x, i.e. without the `acquisition_id` column, are still supported,
+see [Migration from 4.x to 5.x](#migration-from-4x-to-5x).
 
 ## Setup
 
@@ -88,5 +101,27 @@ Version 5.x moves from the DataStax Java driver 3 to the driver 4, which comes w
   e.g. `expiry = 1500.millis` now results in 2 seconds TTL instead of 1 second
 * in the 4.x implementation, the sleep time between attempts (`pollInterval`) was incorrectly applied,
   effectively doubling the sleep time and sleeping even after successful attempts
+* releasing a lock removes the lock record only if it belongs to the same acquisition,
+  in 4.x a lock which had expired and was taken by another contender could be removed
+* a timed out acquisition query which was applied in Cassandra no longer stalls the acquisition until the lock expires
+* the locks table has a new `acquisition_id UUID` column, see [Schema & queries](#schema--queries)
 
-The schema and queries are unchanged, so the existing locks tables can be used as is.
+### Locks table schema
+
+The existing locks tables created for 4.x can be used as is. If the table has no `acquisition_id` column,
+5.x falls back to storing the acquisition ID in the `metadata` column, so the value there looks like
+`<acquisition id>|<metadata>` instead of just `<metadata>`. This mode is compatible with 4.x instances
+using the same table, so 4.x and 5.x instances can share the table during a rolling upgrade.
+
+It is recommended to add the column once all the instances are upgraded to 5.x:
+
+```cql
+ALTER TABLE keyspace.locks ADD acquisition_id UUID;
+```
+
+Please note:
+
+* `AutoCreate` doesn't add the column to an existing table, as it uses `CREATE TABLE IF NOT EXISTS`
+* the schema is checked only in `CassandraSync.of`, so the already created `CassandraSync` instances keep using
+  the fallback mode until recreated, e.g. on application restart; instances in both modes can work with the same
+  table at the same time
