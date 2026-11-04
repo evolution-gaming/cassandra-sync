@@ -5,7 +5,6 @@ import cats.effect.std.MapRef
 import cats.implicits.*
 
 import java.time.Instant
-import scala.concurrent.duration.FiniteDuration
 
 /**
  * In-memory [[LockStore]] for unit tests.
@@ -18,55 +17,50 @@ private[sync] final class InMemoryLockStore private (
 ) extends LockStore[IO] {
   import InMemoryLockStore.*
 
-  override def insertIfNotExists(
-    id: String,
-    expiry: FiniteDuration,
-    timestamp: Instant,
-    metadata: Option[String],
-  ): IO[Boolean] = {
+  override def insertAcquire(lock: Lock): IO[Option[AcquiredLock]] = {
     for {
       now <- IO.realTimeInstant
-      applied <- rowMapRef(id).modify { rowOpt =>
-        if (rowOpt.exists(_.isAlive(now))) {
-          rowOpt -> false
-        } else {
+      acquired <- rowMapRef(lock.id).modify[Option[AcquiredLock]] {
+        case Some(existingRow) if existingRow.isAlive(now) =>
+          val acquired = Option.when(existingRow.lock.acquisitionId == lock.acquisitionId)(AcquiredLock.fromLock(lock))
+          existingRow.some -> acquired
+        case _ =>
           val newRow = LockRow(
-            data = LockData(
-              expiry = expiry,
-              timestamp = timestamp,
-              metadata = metadata,
-            ),
-            expiresAt = now.plusSeconds(LockStore.ttlSeconds(expiry).toLong),
+            lock = lock,
+            expiresAt = now.plusSeconds(LockStore.ttlSeconds(lock.expiry).toLong),
           )
-          newRow.some -> true
-        }
+          newRow.some -> AcquiredLock.fromLock(lock).some
       }
-    } yield applied
+    } yield acquired
   }
 
-  override def delete(id: String): IO[Unit] = rowMapRef(id).set(None)
+  override def deleteIfAcquired(acquiredLock: AcquiredLock): IO[Boolean] = {
+    for {
+      now <- IO.realTimeInstant
+      deleted <- rowMapRef(acquiredLock.lockId).modify[Boolean] {
+        case Some(row) if row.isAlive(now) && row.lock.acquisitionId == acquiredLock.acquisitionId =>
+          none[LockRow] -> true
+        case rowOpt =>
+          rowOpt -> false
+      }
+    } yield deleted
+  }
 
   /**
-   * Returns a non-expired lock data by ID.
+   * Returns a non-expired lock by ID.
    */
-  def get(id: String): IO[Option[LockData]] = {
+  def get(id: String): IO[Option[Lock]] = {
     for {
       now <- IO.realTimeInstant
       rowOpt <- rowMapRef(id).get
-    } yield rowOpt.filter(_.isAlive(now)).map(_.data)
+    } yield rowOpt.filter(_.isAlive(now)).map(_.lock)
   }
 }
 
 private[sync] object InMemoryLockStore {
 
-  final case class LockData(
-    expiry: FiniteDuration,
-    timestamp: Instant,
-    metadata: Option[String],
-  )
-
   private final case class LockRow(
-    data: LockData,
+    lock: Lock,
     expiresAt: Instant,
   ) {
     def isAlive(now: Instant): Boolean = now.isBefore(expiresAt)

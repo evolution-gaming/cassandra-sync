@@ -8,6 +8,9 @@
         </encoder>
     </appender>
 
+    <!-- INFO for SharedTestCassandra start/stop messages -->
+    <logger name="com.evolution.cassandra.sync" level="INFO"/>
+
     <root level="WARN">
         <appender-ref ref="console"/>
     </root>

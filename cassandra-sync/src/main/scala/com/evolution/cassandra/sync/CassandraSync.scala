@@ -28,25 +28,6 @@ import scala.concurrent.duration.*
  */
 trait CassandraSync[F[_]] {
 
-  /*
-  TODO: https://github.com/evolution-gaming/cassandra-sync/issues/269
-  Refactor API to look like CE mutex?
-  deprecating the apply method
-  
-  def run: IO[Unit] = {
-    Mutex[IO].flatMap { mutex =>
-      // Wrap the action inside the lock
-      def securedAction(id: Int): IO[Unit] =
-        mutex.lock.surround(criticalAction(id))
-
-      // Run multiple tasks concurrently to demonstrate serial execution
-      List(1, 2, 3)
-        .parTraverse(id => securedAction(id))
-        .void
-    }
-  }
-   */
-
   /**
    * Acquires the lock by ID, runs `f` and releases the lock once `f` terminates, fails or gets
    * interrupted.
@@ -152,7 +133,7 @@ object CassandraSync {
 
     for {
       _ <- created
-      lockStore <- LockStore.of(session, statements)
+      lockStore <- LockStore.of(session, statements, keyspace = keyspace, table = table)
     } yield new CassandraSyncImpl[F](lockStore, pollInterval = interval)
   }
 

@@ -3,12 +3,11 @@ package com.evolution.cassandra.sync.impl
 import cats.effect.*
 import cats.effect.testkit.TestControl
 import cats.implicits.*
-import com.evolution.cassandra.sync.impl.InMemoryLockStore.LockData
 import com.evolution.cassandra.sync.{CassandraSync, LockAcquireTimeoutError}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import java.time.Instant
+import java.util.UUID
 import scala.collection.immutable.ArraySeq
 import scala.concurrent.duration.*
 import scala.util.control.NoStackTrace
@@ -31,11 +30,9 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
         lockDataWhenTaken <- sync(Id, expiry = 10.seconds, metadata = "metadata".some)(store.get(Id))
         lockDataAfterRelease <- store.get(Id)
       } yield {
-        lockDataWhenTaken shouldEqual LockData(
-          expiry = 10.seconds,
-          timestamp = startTime,
-          metadata = "metadata".some,
-        ).some
+        // comparing user provided lock data (without acquisition ID)
+        lockDataWhenTaken.map(lock => (lock.id, lock.expiry, lock.timestamp, lock.metadata)) shouldEqual
+          (Id, 10.seconds, startTime, "metadata".some).some
         lockDataAfterRelease shouldEqual None
       }
     }
@@ -74,8 +71,7 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
       for {
         store <- InMemoryLockStore.make
         sync = cassandraSync(store)
-        startTime <- IO.realTimeInstant
-        _ <- store.insertIfNotExists(Id, 1.hour, startTime, metadata = None)
+        otherHolderLock <- acquireByOtherHolder(store, expiry = 1.hour)
         fStarted <- Ref.of[IO, Boolean](false)
         waitingFiber <- sync(Id, timeout = timeout)(fStarted.set(true)).start
         _ <- IO.sleep(1.second)
@@ -90,7 +86,7 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
         waitingFiberOutcome.isCanceled shouldBe true
         fStartedResult shouldBe false
         // the lock of the current holder must not be removed
-        lockDataAfterCancel.map(_.timestamp) shouldEqual startTime.some
+        lockDataAfterCancel shouldEqual otherHolderLock.some
       }
     }
 
@@ -174,7 +170,7 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
         store <- InMemoryLockStore.make
         sync = cassandraSync(store)
         startTime <- IO.realTimeInstant
-        _ <- store.insertIfNotExists(Id, expiry, startTime, metadata = None)
+        _ <- acquireByOtherHolder(store, expiry)
         acquiredAtWithLockData <- sync(Id)((IO.realTimeInstant, store.get(Id)).tupled)
       } yield {
         val (acquiredAt, lockData) = acquiredAtWithLockData
@@ -185,8 +181,7 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
       }
     }
 
-    // TODO: https://github.com/evolution-gaming/cassandra-sync/issues/269 fix
-    "not release the lock if it has expired and another caller has acquired it" ignore {
+    "not release the lock if it has expired and another caller has acquired it" in {
       val program: IO[String] = for {
         store <- InMemoryLockStore.make
         sync = cassandraSync(store)
@@ -222,13 +217,25 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
       ).unsafeRunSync()(cats.effect.unsafe.implicits.global)
     }
 
+    "return the function result if the lock has expired before the function completes" in runTestControl {
+      for {
+        store <- InMemoryLockStore.make
+        sync = cassandraSync(store)
+        result <- sync(Id, expiry = 1.second)(IO.sleep(2.seconds).as("result")).attempt
+        lockDataAfterRelease <- store.get(Id)
+      } yield {
+        // there is no lock row to delete anymore, which is not an error
+        result shouldEqual "result".asRight
+        lockDataAfterRelease shouldEqual None
+      }
+    }
+
     "fail with LockAcquireTimeoutError if the lock is not acquired within the timeout" in runTestControl {
       val timeout = 1.second
       for {
         store <- InMemoryLockStore.make
         sync = cassandraSync(store)
-        startTime <- IO.realTimeInstant
-        _ <- store.insertIfNotExists(Id, 1.hour, startTime, metadata = None)
+        otherHolderLock <- acquireByOtherHolder(store, expiry = 1.hour)
         fStarted <- Ref.of[IO, Boolean](false)
         syncCallElapsedTimeWithResult <- sync(Id, timeout = timeout)(fStarted.set(true)).attempt.timed
         fStartedResult <- fStarted.get
@@ -240,7 +247,7 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
         syncCallElapsedTime should be <= timeout + PollInterval
         fStartedResult shouldBe false
         // the lock of the current holder must not be removed
-        lockDataAfterAttempt.map(_.timestamp) shouldEqual startTime.some
+        lockDataAfterAttempt shouldEqual otherHolderLock.some
       }
     }
 
@@ -267,8 +274,7 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
       for {
         store <- InMemoryLockStore.make
         sync = cassandraSync(slowInsertLockStore(store, insertDuration))
-        startTime <- IO.realTimeInstant
-        _ <- store.insertIfNotExists(Id, 1.hour, startTime, metadata = None)
+        otherHolderLock <- acquireByOtherHolder(store, expiry = 1.hour)
         fStarted <- Ref.of[IO, Boolean](false)
         syncCallElapsedTimeWithResult <- sync(Id, timeout = timeout)(fStarted.set(true)).attempt.timed
         fStartedResult <- fStarted.get
@@ -280,20 +286,15 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
         syncCallElapsedTime shouldEqual insertDuration
         fStartedResult shouldBe false
         // the lock of the current holder must not be removed
-        lockDataAfterAttempt.map(_.timestamp) shouldEqual startTime.some
+        lockDataAfterAttempt shouldEqual otherHolderLock.some
       }
     }
 
     "fail without running the function if the lock store fails" in runTestControl {
       val store = new LockStore[IO] {
-        override def insertIfNotExists(
-          id: String,
-          expiry: FiniteDuration,
-          timestamp: Instant,
-          metadata: Option[String],
-        ): IO[Boolean] = IO.raiseError(TestError)
+        override def insertAcquire(lock: Lock): IO[Option[AcquiredLock]] = IO.raiseError(TestError)
 
-        override def delete(id: String): IO[Unit] = IO.unit
+        override def deleteIfAcquired(acquiredLock: AcquiredLock): IO[Boolean] = IO.pure(false)
       }
       for {
         fStarted <- Ref.of[IO, Boolean](false)
@@ -341,14 +342,9 @@ object CassandraSyncImplSpec {
    * Lock store which always acquires the lock but fails to release it.
    */
   private val ReleaseFailingLockStore: LockStore[IO] = new LockStore[IO] {
-    override def insertIfNotExists(
-      id: String,
-      expiry: FiniteDuration,
-      timestamp: Instant,
-      metadata: Option[String],
-    ): IO[Boolean] = IO.pure(true)
+    override def insertAcquire(lock: Lock): IO[Option[AcquiredLock]] = IO.pure(AcquiredLock.fromLock(lock).some)
 
-    override def delete(id: String): IO[Unit] = IO.raiseError(ReleaseError)
+    override def deleteIfAcquired(acquiredLock: AcquiredLock): IO[Boolean] = IO.raiseError(ReleaseError)
   }
 
   /**
@@ -357,15 +353,25 @@ object CassandraSyncImplSpec {
    */
   private def slowInsertLockStore(store: LockStore[IO], insertDuration: FiniteDuration): LockStore[IO] = {
     new LockStore[IO] {
-      override def insertIfNotExists(
-        id: String,
-        expiry: FiniteDuration,
-        timestamp: Instant,
-        metadata: Option[String],
-      ): IO[Boolean] = store.insertIfNotExists(id, expiry, timestamp, metadata) <* IO.sleep(insertDuration)
+      override def insertAcquire(lock: Lock): IO[Option[AcquiredLock]] = {
+        store.insertAcquire(lock) <* IO.sleep(insertDuration)
+      }
 
-      override def delete(id: String): IO[Unit] = store.delete(id)
+      override def deleteIfAcquired(acquiredLock: AcquiredLock): IO[Boolean] = store.deleteIfAcquired(acquiredLock)
     }
+  }
+
+  /**
+   * Acquires the lock with [[Id]] directly in the store, as another lock holder would do.
+   */
+  private def acquireByOtherHolder(store: LockStore[IO], expiry: FiniteDuration): IO[Lock] = {
+    for {
+      timestamp <- IO.realTimeInstant
+      acquisitionId <- IO { UUID.randomUUID() }
+      lock = Lock(id = Id, acquisitionId = acquisitionId, expiry = expiry, timestamp = timestamp, metadata = None)
+      acquired <- store.insertAcquire(lock)
+      _ <- IO.raiseWhen(acquired.isEmpty)(new IllegalStateException(s"lock $Id is already held"))
+    } yield lock
   }
 
   private def cassandraSync(lockStore: LockStore[IO]): CassandraSync[IO] = {
