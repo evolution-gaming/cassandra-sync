@@ -97,6 +97,9 @@ Version 5.x moves from the DataStax Java driver 3 to the driver 4, which comes w
     * the `CassandraSync.Id` type alias is removed, use `String` instead
     * the implicit `FiniteDuration` codecs `CassandraSync.finiteDurationEncodeByName` and
       `CassandraSync.finiteDurationDecodeByName` are removed, define your own if you relied on them
+* a failure to release the lock no longer fails the call if `f` succeeds: the result of `f` is returned,
+  the failure is logged via slf4j (logger `com.evolution.cassandra.sync.CassandraSync`), and the lock record
+  remains until it expires; a lock record that has already expired on release is logged as a warning
 * the lock record TTL is computed by rounding `expiry` up to whole seconds instead of down,
   e.g. `expiry = 1500.millis` now results in 2 seconds TTL instead of 1 second
 * in the 4.x implementation, the sleep time between attempts (`pollInterval`) was incorrectly applied,
