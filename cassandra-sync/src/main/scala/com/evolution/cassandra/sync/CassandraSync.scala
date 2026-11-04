@@ -6,6 +6,7 @@ import cats.~>
 import com.datastax.oss.driver.api.core.cql.AsyncResultSet
 import com.evolution.cassandra.sync.impl.{CassandraSyncImpl, LockStatements, LockStore}
 import com.evolution.scassandra.*
+import com.evolutiongaming.catshelper.LogOf
 
 import scala.concurrent.duration.*
 
@@ -44,7 +45,11 @@ trait CassandraSync[F[_]] {
    *
    * Please note that `expiry` timeout should be larger than `f` expected max run time. In case if
    * lock expiration hits before protected sections finished, another contender could take the same
-   * lock.
+   * lock. Such a case is logged as a warning when the lock is released.
+   *
+   * Failing to release the lock doesn't affect the outcome of the call: the result or the error of
+   * `f` is returned as is, and the release failure is logged. The lock is then held until it
+   * expires.
    *
    * The lock is not reentrant: acquiring a lock with the same ID from within `f` will not succeed
    * until the outer lock expires.
@@ -134,7 +139,9 @@ object CassandraSync {
     for {
       _ <- created
       lockStore <- LockStore.of(session, statements, keyspace = keyspace, table = table)
-    } yield new CassandraSyncImpl[F](lockStore, pollInterval = interval)
+      logOf <- LogOf.slf4j[F]
+      log <- logOf(classOf[CassandraSync[F]])
+    } yield new CassandraSyncImpl[F](lockStore, pollInterval = interval, log = log)
   }
 
   /**

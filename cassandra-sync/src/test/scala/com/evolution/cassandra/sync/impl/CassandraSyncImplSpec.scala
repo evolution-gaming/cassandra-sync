@@ -3,7 +3,9 @@ package com.evolution.cassandra.sync.impl
 import cats.effect.*
 import cats.effect.testkit.TestControl
 import cats.implicits.*
+import com.evolution.cassandra.sync.impl.RecordingLog.Level
 import com.evolution.cassandra.sync.{CassandraSync, LockAcquireTimeoutError}
+import com.evolutiongaming.catshelper.Log
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -25,15 +27,18 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
     "run the function while holding the lock and release it afterwards" in runTestControl {
       for {
         store <- InMemoryLockStore.make
-        sync = cassandraSync(store)
+        log <- RecordingLog.make
+        sync = cassandraSync(store, log)
         startTime <- IO.realTimeInstant
         lockDataWhenTaken <- sync(Id, expiry = 10.seconds, metadata = "metadata".some)(store.get(Id))
         lockDataAfterRelease <- store.get(Id)
+        logRecords <- log.records
       } yield {
         // comparing user provided lock data (without acquisition ID)
         lockDataWhenTaken.map(lock => (lock.id, lock.expiry, lock.timestamp, lock.metadata)) shouldEqual
           (Id, 10.seconds, startTime, "metadata".some).some
         lockDataAfterRelease shouldEqual None
+        logRecords shouldBe empty
       }
     }
 
@@ -220,13 +225,17 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
     "return the function result if the lock has expired before the function completes" in runTestControl {
       for {
         store <- InMemoryLockStore.make
-        sync = cassandraSync(store)
+        log <- RecordingLog.make
+        sync = cassandraSync(store, log)
         result <- sync(Id, expiry = 1.second)(IO.sleep(2.seconds).as("result")).attempt
         lockDataAfterRelease <- store.get(Id)
+        logRecords <- log.records
       } yield {
         // there is no lock row to delete anymore, which is not an error
         result shouldEqual "result".asRight
         lockDataAfterRelease shouldEqual None
+        // but the protected section has run without the lock for a while, which is worth a warning
+        logRecords.map(record => (record.level, record.cause)) shouldEqual Vector((Level.Warn, None))
       }
     }
 
@@ -306,23 +315,40 @@ class CassandraSyncImplSpec extends AnyWordSpec with Matchers {
       }
     }
 
-    // TODO: https://github.com/evolution-gaming/cassandra-sync/issues/277
-    // fix a lock release error replacing the result of successful `f`,
-    // while it is ignored if `f` fails
-    "return the function result if releasing the lock fails" ignore runTestControl {
+    "return the function result if releasing the lock fails" in runTestControl {
       for {
-        result <- cassandraSync(ReleaseFailingLockStore)(Id)(IO.pure("result")).attempt
+        log <- RecordingLog.make
+        result <- cassandraSync(ReleaseFailingLockStore, log)(Id)(IO.pure("result")).attempt
+        logRecords <- log.records
       } yield {
         // the lock row expires by TTL anyway, while failing the call might make the caller rerun `f`
         result shouldEqual "result".asRight
+        logRecords.map(record => (record.level, record.cause)) shouldEqual Vector((Level.Error, ReleaseError.some))
       }
     }
 
     "fail with the function error if releasing the lock fails too" in runTestControl {
       for {
-        result <- cassandraSync(ReleaseFailingLockStore)(Id)(IO.raiseError[Unit](TestError)).attempt
+        log <- RecordingLog.make
+        result <- cassandraSync(ReleaseFailingLockStore, log)(Id)(IO.raiseError[Unit](TestError)).attempt
+        logRecords <- log.records
       } yield {
         result shouldEqual TestError.asLeft
+        logRecords.map(record => (record.level, record.cause)) shouldEqual Vector((Level.Error, ReleaseError.some))
+      }
+    }
+
+    "stay canceled if releasing the lock fails after the function is canceled" in runTestControl {
+      for {
+        log <- RecordingLog.make
+        lockHoldingFiber <- cassandraSync(ReleaseFailingLockStore, log)(Id)(IO.never[Unit]).start
+        _ <- IO.sleep(1.second)
+        _ <- lockHoldingFiber.cancel
+        lockHoldingFiberOutcome <- lockHoldingFiber.join
+        logRecords <- log.records
+      } yield {
+        lockHoldingFiberOutcome.isCanceled shouldBe true
+        logRecords.map(record => (record.level, record.cause)) shouldEqual Vector((Level.Error, ReleaseError.some))
       }
     }
   }
@@ -374,8 +400,8 @@ object CassandraSyncImplSpec {
     } yield lock
   }
 
-  private def cassandraSync(lockStore: LockStore[IO]): CassandraSync[IO] = {
-    new CassandraSyncImpl[IO](lockStore, pollInterval = PollInterval)
+  private def cassandraSync(lockStore: LockStore[IO], log: Log[IO] = Log.empty[IO]): CassandraSync[IO] = {
+    new CassandraSyncImpl[IO](lockStore, pollInterval = PollInterval, log = log)
   }
 
   /**

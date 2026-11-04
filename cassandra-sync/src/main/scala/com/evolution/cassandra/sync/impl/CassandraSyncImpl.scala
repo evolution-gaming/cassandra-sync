@@ -5,6 +5,7 @@ import cats.effect.*
 import cats.effect.implicits.*
 import cats.implicits.*
 import com.evolution.cassandra.sync.*
+import com.evolutiongaming.catshelper.Log
 
 import java.util.UUID
 import scala.concurrent.duration.FiniteDuration
@@ -16,10 +17,13 @@ import scala.concurrent.duration.FiniteDuration
  *   see [[LockStore]]
  * @param pollInterval
  *   interval between lock acquisition poll attempts
+ * @param log
+ *   log for lock release problems, which are not propagated to the caller
  */
 private[sync] final class CassandraSyncImpl[F[_]: Async](
   lockStore: LockStore[F],
   pollInterval: FiniteDuration,
+  log: Log[F],
 ) extends CassandraSync[F] {
 
   def apply[A](
@@ -52,7 +56,26 @@ private[sync] final class CassandraSyncImpl[F[_]: Async](
       }
     }
 
-    def release(acquired: AcquiredLock): F[Unit] = lockStore.deleteIfAcquired(acquired).void
+    // Release problems are logged instead of being raised: a release error would replace the result of successful `f`,
+    // making the caller think `f` has failed and possibly rerun it, while the lock row expires by TTL anyway.
+    def release(acquired: AcquiredLock): F[Unit] = {
+      lockStore.deleteIfAcquired(acquired).attempt.flatMap {
+        case Right(true) =>
+          Applicative[F].unit
+        case Right(false) =>
+          // the row is either gone or belongs to another acquisition now
+          log.warn(
+            s"lock $id (acquisition ${ acquired.acquisitionId }) was no longer held on release, " +
+              s"most likely it expired before the protected section completed, consider increasing expiry ($expiry)",
+          )
+        case Left(error) =>
+          log.error(
+            s"failed to release lock $id (acquisition ${ acquired.acquisitionId }), " +
+              s"it might stay held until it expires ($expiry)",
+            error,
+          )
+      }
+    }
 
     val lockResource = Resource
       .makeFull(acquire)(release)
