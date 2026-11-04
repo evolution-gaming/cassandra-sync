@@ -14,7 +14,7 @@ class LockStoreSpec extends AnyFreeSpec with Matchers {
 
     "should return 1 for durations <= 1s" in {
       LockStore.ttlSeconds(minDuration) shouldEqual 1
-      LockStore.ttlSeconds(-5.seconds) shouldEqual 1
+      LockStore.ttlSeconds(-5L.seconds) shouldEqual 1
       LockStore.ttlSeconds(Duration.Zero) shouldEqual 1
       LockStore.ttlSeconds(500.millis) shouldEqual 1
       LockStore.ttlSeconds(1.second) shouldEqual 1
