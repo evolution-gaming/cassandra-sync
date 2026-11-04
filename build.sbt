@@ -9,7 +9,7 @@ lazy val commonSettings = Seq(
   versionPolicyIntention := Compatibility.BinaryCompatible,
   scalaVersion := crossScalaVersions.value.head,
   // if changing binary Scala versions here, change in the ci.yml action as well
-  crossScalaVersions := Seq("2.13.18", "3.3.8"),
+  crossScalaVersions := Seq("2.13.18", "3.3.9"),
 
   scalacOptions ++= Seq(
     "-release:17",
