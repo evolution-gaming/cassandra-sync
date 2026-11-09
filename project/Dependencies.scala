@@ -26,7 +26,7 @@ object Dependencies {
   // Version overrides to fix dependabot alerts go here:
   object SecurityAlertOverrides {
     private object Jackson {
-      private val version = "2.22.4"
+      private val version = "2.23.0"
 
       val databind = "com.fasterxml.jackson.core" % "jackson-databind" % version
       val core = "com.fasterxml.jackson.core" % "jackson-core" % version
