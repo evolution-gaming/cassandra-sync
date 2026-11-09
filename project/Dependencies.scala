@@ -32,7 +32,7 @@ object Dependencies {
       val core = "com.fasterxml.jackson.core" % "jackson-core" % version
     }
 
-    private val nettyHandler = "io.netty" % "netty-handler" % "4.1.140.Final"
+    private val nettyHandler = "io.netty" % "netty-handler" % "4.2.20.Final"
 
     val dependencies: Seq[ModuleID] = Seq(
       Jackson.databind,
