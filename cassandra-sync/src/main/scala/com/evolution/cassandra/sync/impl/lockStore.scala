@@ -3,7 +3,6 @@ package com.evolution.cassandra.sync.impl
 import cats.*
 import cats.implicits.*
 import com.datastax.oss.driver.api.core.cql.*
-import com.datastax.oss.driver.api.core.{ConsistencyLevel, CqlIdentifier}
 import com.evolution.scassandra.*
 import com.evolution.scassandra.syntax.*
 
@@ -42,19 +41,15 @@ private[sync] final case class Lock(
  *   see [[Lock.id]]
  * @param acquisitionId
  *   see [[Lock.acquisitionId]]
- * @param metadata
- *   see [[Lock.metadata]]
  */
 private[sync] final case class AcquiredLock(
   lockId: String,
   acquisitionId: UUID,
-  metadata: Option[String], // needed only for LockStoreImplV4
 )
 private[sync] object AcquiredLock {
   def fromLock(lock: Lock): AcquiredLock = AcquiredLock(
     lockId = lock.id,
     acquisitionId = lock.acquisitionId,
-    metadata = lock.metadata,
   )
 }
 
@@ -103,63 +98,15 @@ private[sync] object LockStore {
   def of[F[_]: MonadThrow](
     session: CassandraSession[F],
     statements: LockStatements,
-    keyspace: String,
-    table: String,
   ): F[LockStore[F]] = {
-    hasAcquisitionIdColumn(session, keyspace = keyspace, table = table).flatMap { acquisitionIdColumnExists =>
-      if (acquisitionIdColumnExists) {
-        // use post-V5 schema implementation
-        for {
-          insertIfNotExistsSt <- session.prepare(statements.InsertIfNotExists)
-          deleteIfAcquiredSt <- session.prepare(statements.DeleteIfAcquired)
-        } yield new LockStoreImpl[F](
-          session,
-          insertIfNotExistsSt = insertIfNotExistsSt,
-          deleteIfAcquiredSt = deleteIfAcquiredSt,
-        )
-      } else {
-        // use pre-V5 schema implementation
-        for {
-          insertIfNotExistsSt <- session.prepare(statements.InsertIfNotExistsV4)
-          deleteIfAcquiredSt <- session.prepare(statements.DeleteIfAcquiredV4)
-        } yield new LockStoreImplV4[F](
-          session,
-          insertIfNotExistsSt = insertIfNotExistsSt,
-          deleteIfAcquiredSt = deleteIfAcquiredSt,
-        )
-      }
-    }
-  }
-
-  /**
-   * Checks whether the locks table has the `acquisition_id` column, i.e. has the current schema.
-   *
-   * Asks the server instead of using the driver's schema metadata, which might be stale, filtered
-   * or disabled.
-   *
-   * Returns false if the table does not exist, preparing the lock statements fails then.
-   */
-  private def hasAcquisitionIdColumn[F[_]: MonadThrow](
-    session: CassandraSession[F],
-    keyspace: String,
-    table: String,
-  ): F[Boolean] = {
     for {
-      statement <- MonadThrow[F].catchNonFatal {
-        SimpleStatement
-          .newInstance(
-            "SELECT column_name FROM system_schema.columns WHERE keyspace_name = ? AND table_name = ? AND column_name = ?",
-            // the names are given as in CQL statements, while schema tables store them in the internal form
-            CqlIdentifier.fromCql(keyspace).asInternal(),
-            CqlIdentifier.fromCql(table).asInternal(),
-            "acquisition_id",
-          )
-          // schema tables are local to each node, and some consistency levels, like EACH_QUORUM, fail for reads
-          .setConsistencyLevel(ConsistencyLevel.ONE)
-          .setIdempotent(true)
-      }
-      resultSet <- session.execute(statement)
-    } yield Option(resultSet.one()).isDefined
+      insertIfNotExistsSt <- session.prepare(statements.InsertIfNotExists)
+      deleteIfAcquiredSt <- session.prepare(statements.DeleteIfAcquired)
+    } yield new LockStoreImpl[F](
+      session,
+      insertIfNotExistsSt = insertIfNotExistsSt,
+      deleteIfAcquiredSt = deleteIfAcquiredSt,
+    )
   }
 
   /**
@@ -209,14 +156,8 @@ private[sync] final class LockStatements(keyspace: String, table: String) {
   val InsertIfNotExists: String =
     s"INSERT INTO $keyspace.$table (id, acquisition_id, expiry_ms, timestamp, metadata) VALUES (?, ?, ?, ?, ?) IF NOT EXISTS USING TTL ?"
 
-  val InsertIfNotExistsV4: String =
-    s"INSERT INTO $keyspace.$table (id, expiry_ms, timestamp, metadata) VALUES (?, ?, ?, ?) IF NOT EXISTS USING TTL ?"
-
   val DeleteIfAcquired: String =
     s"DELETE FROM $keyspace.$table WHERE id = ? IF acquisition_id = ?"
-
-  val DeleteIfAcquiredV4: String =
-    s"DELETE FROM $keyspace.$table WHERE id = ? IF metadata = ?"
 }
 
 private final class LockStoreImpl[F[_]: MonadThrow](
@@ -245,8 +186,8 @@ private final class LockStoreImpl[F[_]: MonadThrow](
       val alreadyExistingRow = Option(rs.one()).getOrElse(sys.error(
         "no row returned on INSERT IF NOT EXISTS conflict",
       ))
-      // optional because the schema might already contain the column, but we might be dealing with a row inserted by
-      // an old cassandra-sync version still
+      // optional because the row might have been inserted by an older cassandra-sync version not setting the column:
+      // 4.x, or a 5.x instance created before the column was added, which works in the fallback mode then
       val alreadyExistingAcquisitionIdOpt = alreadyExistingRow.decode[Option[UUID]]("acquisition_id")
       if (alreadyExistingAcquisitionIdOpt.contains(lock.acquisitionId)) {
         AcquiredLock.fromLock(lock).some
@@ -273,80 +214,5 @@ private final class LockStoreImpl[F[_]: MonadThrow](
       }
       result <- session.execute(boundSt)
     } yield result
-  }
-}
-
-/**
- * [[LockStore]] implementation which works with pre-5.0.0 locks table schema - without a dedicated
- * acquisition_id column.
- *
- * To circumvent this, the implementation encodes acquisition ID value into the metadata column and
- * uses it for conditional statements.
- */
-private final class LockStoreImplV4[F[_]: MonadThrow](
-  session: CassandraSession[F],
-  insertIfNotExistsSt: PreparedStatement,
-  deleteIfAcquiredSt: PreparedStatement,
-) extends LockStore[F] {
-  override def insertAcquire(lock: Lock): F[Option[AcquiredLock]] = {
-    val effectiveMetadata = getEffectiveMetadata(lock)
-
-    runPreparedStatement {
-      insertIfNotExistsSt
-        .bind()
-        .encode("id", lock.id)
-        .encode("expiry_ms", lock.expiry.toMillis)
-        .encode("timestamp", lock.timestamp)
-        .encode("metadata", effectiveMetadata)
-        .encode("[ttl]", LockStore.ttlSeconds(lock.expiry))
-        .setIdempotent(true)
-    }.map { rs =>
-      if (rs.wasApplied()) {
-        AcquiredLock.fromLock(lock).some
-      } else {
-        val alreadyExistingRow = Option(rs.one()).getOrElse(sys.error(
-          "no row returned on INSERT IF NOT EXISTS conflict",
-        ))
-        val alreadyExistingMetadataOpt = alreadyExistingRow.decode[Option[String]]("metadata")
-        if (alreadyExistingMetadataOpt.contains(effectiveMetadata)) {
-          AcquiredLock.fromLock(lock).some
-        } else {
-          None
-        }
-      }
-    }
-  }
-
-  override def deleteIfAcquired(acquiredLock: AcquiredLock): F[Boolean] = {
-    runPreparedStatement {
-      deleteIfAcquiredSt
-        .bind()
-        .encode("id", acquiredLock.lockId)
-        .encode("metadata", getEffectiveMetadata(acquiredLock))
-    }.map(_.wasApplied())
-  }
-
-  private def runPreparedStatement(thunk: => BoundStatement): F[AsyncResultSet] = {
-    for {
-      // wrapping in catchNonFatal because driver's statement building code might throw exceptions
-      boundSt <- MonadThrow[F].catchNonFatal {
-        thunk
-      }
-      result <- session.execute(boundSt)
-    } yield result
-  }
-
-  private def getEffectiveMetadata(acquisitionId: UUID, metadata: Option[String]): String = {
-    // UUID toString has fixed length and doesn't contain the delimiting symbol '|'
-    // so this string representation of (acquisitionId, metadata) is reversible
-    (Vector(acquisitionId.toString) ++ metadata).mkString("|")
-  }
-
-  private def getEffectiveMetadata(lock: Lock): String = {
-    getEffectiveMetadata(acquisitionId = lock.acquisitionId, metadata = lock.metadata)
-  }
-
-  private def getEffectiveMetadata(acquiredLock: AcquiredLock): String = {
-    getEffectiveMetadata(acquisitionId = acquiredLock.acquisitionId, metadata = acquiredLock.metadata)
   }
 }

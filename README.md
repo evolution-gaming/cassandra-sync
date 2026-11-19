@@ -70,8 +70,8 @@ INSERT INTO keyspace.locks (id, acquisition_id, expiry_ms, timestamp, metadata) 
 DELETE FROM keyspace.locks WHERE id = ? IF acquisition_id = ?;
 ```
 
-Tables created by cassandra-sync 4.x, i.e. without the `acquisition_id` column, are still supported,
-see [Migration from 4.x to 5.x](#migration-from-4x-to-5x).
+Tables created by cassandra-sync 4.x, i.e. without the `acquisition_id` column, are not supported since 6.x,
+see [Migration from 5.x to 6.x](#migration-from-5x-to-6x).
 
 ## Setup
 
@@ -80,6 +80,25 @@ addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.1.2")
 
 libraryDependencies += "com.evolution" %% "cassandra-sync" % latestVersion
 ```
+
+## Migration from 5.x to 6.x
+
+Version 6.x drops support for the locks tables without the `acquisition_id` column, i.e. the tables created
+for 4.x which 5.x works with in the fallback mode, see [Locks table schema](#locks-table-schema).
+`CassandraSync.of` fails with `InvalidQueryException` for such tables, also with `AutoCreate`, as it doesn't alter
+the existing tables. There are no API changes.
+
+Before upgrading, add the column to the table if it is missing:
+
+```cql
+ALTER TABLE keyspace.locks ADD acquisition_id UUID;
+```
+
+The 5.x instances created before the column was added keep working in the fallback mode until recreated.
+This mode is compatible with 6.x, so 5.x and 6.x instances can share the table during a rolling upgrade.
+
+When upgrading from 4.x directly, see also [Migration from 4.x to 5.x](#migration-from-4x-to-5x).
+4.x instances can share the table with 6.x instances once the column is added.
 
 ## Migration from 4.x to 5.x
 
@@ -116,7 +135,8 @@ The existing locks tables created for 4.x can be used as is. If the table has no
 `<acquisition id>|<metadata>` instead of just `<metadata>`. This mode is compatible with 4.x instances
 using the same table, so 4.x and 5.x instances can share the table during a rolling upgrade.
 
-It is recommended to add the column once all the instances are upgraded to 5.x:
+It is recommended to add the column once all the instances are upgraded to 5.x, and it is required for 6.x,
+see [Migration from 5.x to 6.x](#migration-from-5x-to-6x):
 
 ```cql
 ALTER TABLE keyspace.locks ADD acquisition_id UUID;

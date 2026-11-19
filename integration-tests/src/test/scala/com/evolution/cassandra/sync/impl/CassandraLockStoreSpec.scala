@@ -14,130 +14,23 @@ import java.util.UUID
 import scala.concurrent.duration.*
 
 /**
- * Verifies [[LockStore]] implementations with Cassandra, for both the current locks table schema
- * and the schema of cassandra-sync 4.x.
+ * Verifies [[LockStore]] implementation with Cassandra.
  */
 @DoNotDiscover // will be combined in Suites to share test resources
 class CassandraLockStoreSpec(testCassandra: SharedTestCassandra) extends BaseCassandraSpec(testCassandra) {
   import CassandraLockStoreSpec.*
 
-  // the locks table with the current schema is created before all the tests
-  private lazy val currentSchemaKeyspace = ensureTestKeyspace("current")
-  // the locks table with the 4.x schema is created before all the tests
-  private lazy val schema4xKeyspace = ensureTestKeyspace("4x")
-  // the locks table is created and migrated by the test
-  private lazy val migratedSchemaKeyspace = ensureTestKeyspace("migrated")
+  // the locks table is created before all the tests
+  private lazy val keyspace = ensureTestKeyspace("current")
 
-  private lazy val currentSchemaLockStore: LockStore[IO] = lockStore(currentSchemaKeyspace).run()
-
-  private lazy val schema4xLockStore: LockStore[IO] = lockStore(schema4xKeyspace).run()
+  private lazy val store: LockStore[IO] = lockStore(keyspace).run()
 
   override protected def beforeAll(): Unit = {
     super.beforeAll()
-    val createTables = for {
-      _ <- session.execute(lockStatements(currentSchemaKeyspace, Table).CreateTableIfNotExists)
-      _ <- session.execute(LockStatements4x.createTableIfNotExists(schema4xKeyspace, Table))
-    } yield ()
-    createTables.run()
-  }
-
-  "LockStore with the current table schema" should {
-
-    behave like lockStoreBehavior(currentSchemaKeyspace, currentSchemaLockStore)
-
-    "store the acquisition ID and the metadata in separate columns" in new Scope {
-      val lock = newLock(id, metadata = "metadata".some)
-      currentSchemaLockStore.insertAcquire(lock).run() shouldBe defined
-
-      val row = selectLockRow(currentSchemaKeyspace, id).value
-      row.decode[Option[UUID]]("acquisition_id") shouldEqual lock.acquisitionId.some
-      row.decode[Option[String]]("metadata") shouldEqual "metadata".some
-      row.decode[Long]("expiry_ms") shouldEqual lock.expiry.toMillis
-      row.decode[Instant]("timestamp") shouldEqual lock.timestamp
-      selectLockRowTtl(currentSchemaKeyspace, id).value should (be > 0 and be <= LockStore.ttlSeconds(lock.expiry))
-    }
-
-    "store the acquisition ID if there is no metadata" in new Scope {
-      val lock = newLock(id, metadata = None)
-      currentSchemaLockStore.insertAcquire(lock).run() shouldBe defined
-
-      val row = selectLockRow(currentSchemaKeyspace, id).value
-      row.decode[Option[UUID]]("acquisition_id") shouldEqual lock.acquisitionId.some
-      row.decode[Option[String]]("metadata") shouldEqual None
-    }
-  }
-
-  "LockStore with the 4.x table schema" should {
-
-    behave like lockStoreBehavior(schema4xKeyspace, schema4xLockStore)
-
-    "store the acquisition ID along with the metadata in the metadata column" in new Scope {
-      val lock = newLock(id, metadata = "metadata".some)
-      schema4xLockStore.insertAcquire(lock).run() shouldBe defined
-
-      val row = selectLockRow(schema4xKeyspace, id).value
-      row.decode[Option[String]]("metadata") shouldEqual s"${ lock.acquisitionId }|metadata".some
-      row.decode[Long]("expiry_ms") shouldEqual lock.expiry.toMillis
-      row.decode[Instant]("timestamp") shouldEqual lock.timestamp
-      selectLockRowTtl(schema4xKeyspace, id).value should (be > 0 and be <= LockStore.ttlSeconds(lock.expiry))
-    }
-
-    "store the acquisition ID in the metadata column if there is no metadata" in new Scope {
-      val lock = newLock(id, metadata = None)
-      schema4xLockStore.insertAcquire(lock).run() shouldBe defined
-
-      val row = selectLockRow(schema4xKeyspace, id).value
-      row.decode[Option[String]]("metadata") shouldEqual lock.acquisitionId.toString.some
-    }
+    session.execute(lockStatements(keyspace, Table).CreateTableIfNotExists).void.run()
   }
 
   "LockStore" should {
-
-    "fail to be created if the table does not exist" in {
-      an[InvalidQueryException] should be thrownBy lockStore(currentSchemaKeyspace, table = "missing_table").run()
-    }
-
-    "fail to be created if the keyspace does not exist" in {
-      an[InvalidQueryException] should be thrownBy lockStore("missing").run()
-    }
-
-    "use the current table schema if the names are given in a different case" in new Scope {
-      val store = lockStore(currentSchemaKeyspace.toUpperCase, table = Table.toUpperCase).run()
-      val lock = newLock(id)
-      store.insertAcquire(lock).run() shouldBe defined
-      selectLockRow(currentSchemaKeyspace, id).value.decode[Option[UUID]]("acquisition_id") shouldEqual
-        lock.acquisitionId.some
-    }
-
-    "keep the lock exclusive between the lock stores created before and after the table schema migration" in new Scope {
-      session.execute(LockStatements4x.createTableIfNotExists(migratedSchemaKeyspace, Table)).run()
-      val storeBeforeMigration = lockStore(migratedSchemaKeyspace).run()
-      session.execute(s"ALTER TABLE $migratedSchemaKeyspace.$Table ADD acquisition_id UUID").run()
-      val storeAfterMigration = lockStore(migratedSchemaKeyspace).run()
-
-      val lockBeforeMigration = newLock(id)
-      val lockAfterMigration = newLock(id)
-
-      // the lock held by the store created before the migration
-      val acquiredBeforeMigration = storeBeforeMigration.insertAcquire(lockBeforeMigration).run().value
-      storeAfterMigration.insertAcquire(lockAfterMigration).run() shouldEqual None
-      storeAfterMigration.deleteIfAcquired(AcquiredLock.fromLock(lockAfterMigration)).run() shouldEqual false
-      storeBeforeMigration.deleteIfAcquired(acquiredBeforeMigration).run() shouldEqual true
-
-      // the lock held by the store created after the migration
-      val acquiredAfterMigration = storeAfterMigration.insertAcquire(lockAfterMigration).run().value
-      // the store created after the migration uses the acquisition ID column
-      selectLockRow(migratedSchemaKeyspace, id).value.decode[Option[UUID]]("acquisition_id") shouldEqual
-        lockAfterMigration.acquisitionId.some
-      storeBeforeMigration.insertAcquire(lockBeforeMigration).run() shouldEqual None
-      storeBeforeMigration.deleteIfAcquired(acquiredBeforeMigration).run() shouldEqual false
-      storeAfterMigration.deleteIfAcquired(acquiredAfterMigration).run() shouldEqual true
-
-      selectLockRow(migratedSchemaKeyspace, id) shouldEqual None
-    }
-  }
-
-  private def lockStoreBehavior(keyspace: => String, store: => LockStore[IO]): Unit = {
 
     "acquire the lock if it is not held" in new Scope {
       val lock = newLock(id)
@@ -174,6 +67,8 @@ class CassandraLockStoreSpec(testCassandra: SharedTestCassandra) extends BaseCas
       store.insertAcquire(otherLock).run() shouldEqual AcquiredLock.fromLock(otherLock).some
     }
 
+    // the lock rows without the acquisition ID are also written by cassandra-sync 5.x instances
+    // working in the fallback mode for the tables created by 4.x
     "not acquire or release the lock held by cassandra-sync 4.x" in new Scope {
       val lock = newLock(id, metadata = "metadata".some)
       insertIfNotExists4x(keyspace, id, metadata = "metadata".some) shouldEqual true
@@ -187,10 +82,45 @@ class CassandraLockStoreSpec(testCassandra: SharedTestCassandra) extends BaseCas
       // and cassandra-sync 4.x can't acquire the lock held by the current version
       insertIfNotExists4x(keyspace, id, metadata = "metadata".some) shouldEqual false
     }
+
+    "store the lock data" in new Scope {
+      val lock = newLock(id, metadata = "metadata".some)
+      store.insertAcquire(lock).run() shouldBe defined
+
+      val row = selectLockRow(keyspace, id).value
+      row.decode[Option[UUID]]("acquisition_id") shouldEqual lock.acquisitionId.some
+      row.decode[Option[String]]("metadata") shouldEqual "metadata".some
+      row.decode[Long]("expiry_ms") shouldEqual lock.expiry.toMillis
+      row.decode[Instant]("timestamp") shouldEqual lock.timestamp
+      selectLockRowTtl(keyspace, id).value should (be > 0 and be <= LockStore.ttlSeconds(lock.expiry))
+    }
+
+    "store the lock data if there is no metadata" in new Scope {
+      val lock = newLock(id, metadata = None)
+      store.insertAcquire(lock).run() shouldBe defined
+
+      val row = selectLockRow(keyspace, id).value
+      row.decode[Option[UUID]]("acquisition_id") shouldEqual lock.acquisitionId.some
+      row.decode[Option[String]]("metadata") shouldEqual None
+    }
+
+    "fail to be created if the table does not exist" in {
+      an[InvalidQueryException] should be thrownBy lockStore(keyspace, table = "missing_table").run()
+    }
+
+    "fail to be created if the keyspace does not exist" in {
+      an[InvalidQueryException] should be thrownBy lockStore("missing").run()
+    }
+
+    "fail to be created if the table has the 4.x schema without the acquisition ID column" in {
+      val table = "locks_4x"
+      session.execute(LockStatements4x.createTableIfNotExists(keyspace, table)).run()
+      an[InvalidQueryException] should be thrownBy lockStore(keyspace, table = table).run()
+    }
   }
 
   private def lockStore(keyspace: String, table: String = Table): IO[LockStore[IO]] = {
-    LockStore.of(session, lockStatements(keyspace, table), keyspace = keyspace, table = table)
+    LockStore.of(session, lockStatements(keyspace, table))
   }
 
   private def selectLockRow(keyspace: String, id: String): Option[Row] = {
@@ -243,9 +173,6 @@ class CassandraLockStoreSpec(testCassandra: SharedTestCassandra) extends BaseCas
 
 object CassandraLockStoreSpec {
 
-  /**
-   * Locks table name, the same in each keyspace of the spec.
-   */
   private val Table = "locks"
 
   private val LockExpiry = 1.minute
