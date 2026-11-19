@@ -12,7 +12,7 @@ object Dependencies {
   val `cats-effect-testkit` = "org.typelevel" %% "cats-effect-testkit" % "3.7.1"
 
   object Logback {
-    private val version = "1.6.7"
+    private val version = "1.6.8"
     val core = "ch.qos.logback" % "logback-core" % version
     val classic = "ch.qos.logback" % "logback-classic" % version
   }
