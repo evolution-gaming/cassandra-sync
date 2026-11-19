@@ -93,6 +93,10 @@ object CassandraSync {
    * [[AutoCreate.None]] the table has to exist before calling this method, as lock statements are
    * prepared during creation.
    *
+   * An existing table has to have the `acquisition_id` column, which is missing in the tables
+   * created by cassandra-sync 4.x, otherwise this method fails. The column is not added by
+   * `autoCreate`, see the README on how to migrate the table.
+   *
    * Please note that concurrent schema changes are not supported by Cassandra, so creating the
    * table from several application nodes at once might fail. It is better to create the table in
    * advance, see the table definition in the README.
@@ -138,7 +142,7 @@ object CassandraSync {
 
     for {
       _ <- created
-      lockStore <- LockStore.of(session, statements, keyspace = keyspace, table = table)
+      lockStore <- LockStore.of(session, statements)
       logOf <- LogOf.slf4j[F]
       log <- logOf(classOf[CassandraSync[F]])
     } yield new CassandraSyncImpl[F](lockStore, pollInterval = interval, log = log)

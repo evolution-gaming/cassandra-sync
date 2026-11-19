@@ -2,6 +2,7 @@ package com.evolution.cassandra.sync
 
 import cats.arrow.FunctionK
 import cats.effect.*
+import com.datastax.oss.driver.api.core.servererrors.InvalidQueryException
 import org.scalatest.DoNotDiscover
 
 import java.util.UUID
@@ -12,39 +13,18 @@ import scala.util.control.NoStackTrace
 @DoNotDiscover // will be combined in Suites to share test resources
 class CassandraSyncSpec(testCassandra: SharedTestCassandra) extends BaseCassandraSpec(testCassandra) {
 
-  // the locks table with the current schema is created by CassandraSync
-  private lazy val currentSchemaKeyspace = ensureTestKeyspace("current")
-  // the locks table with the 4.x schema is created before all the tests, as if it was created by cassandra-sync 4.x
-  private lazy val schema4xKeyspace = ensureTestKeyspace("4x")
+  // the locks table is created by CassandraSync
+  private lazy val keyspace = ensureTestKeyspace("current")
 
-  private lazy val currentSchemaCassandraSyncFuture: CassandraSync[Future] = toFuture(
+  private lazy val cassandraSyncFuture: CassandraSync[Future] = toFuture(
     CassandraSync.of(
       session,
-      keyspace = currentSchemaKeyspace,
+      keyspace = keyspace,
       autoCreate = AutoCreate.Table,
     ).run(),
   )
-  private lazy val schema4xCassandraSyncFuture: CassandraSync[Future] = toFuture(
-    CassandraSync.of(
-      session,
-      keyspace = schema4xKeyspace,
-    ).run(),
-  )
 
-  override protected def beforeAll(): Unit = {
-    super.beforeAll()
-    session.execute(LockStatements4x.createTableIfNotExists(schema4xKeyspace, "locks")).void.run()
-  }
-
-  "CassandraSync with the current table schema" should {
-    behave like cassandraSync(currentSchemaCassandraSyncFuture)
-  }
-
-  "CassandraSync with the 4.x table schema" should {
-    behave like cassandraSync(schema4xCassandraSyncFuture)
-  }
-
-  private def cassandraSync(cassandraSyncFuture: => CassandraSync[Future]): Unit = {
+  "CassandraSync" should {
 
     "execute functions one by one" in new Scope {
       val promise = Promise[Int]()
@@ -87,6 +67,14 @@ class CassandraSyncSpec(testCassandra: SharedTestCassandra) extends BaseCassandr
       the[TimeoutException] thrownBy result0.await(1.second)
       val result1 = cassandraSyncFuture(id, expiry, timeout)(Future.successful(1))
       the[LockAcquireTimeoutError] thrownBy result1.await(1.second)
+    }
+
+    "fail to be created if the table has the 4.x schema without the acquisition ID column" in {
+      val table = "locks_4x"
+      session.execute(LockStatements4x.createTableIfNotExists(keyspace, table)).run()
+      // the existing table is not altered by AutoCreate
+      an[InvalidQueryException] should be thrownBy
+        CassandraSync.of(session, keyspace = keyspace, table = table, autoCreate = AutoCreate.Table).run()
     }
   }
 

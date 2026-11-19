@@ -3,8 +3,8 @@ package com.evolution.cassandra.sync
 /**
  * Locks table schema and queries of cassandra-sync 4.x, which has no acquisition ID column.
  *
- * Used to verify compatibility with the locks tables created and the lock rows written by 4.x
- * versions.
+ * Used to verify that the locks tables created by 4.x versions are rejected, and that the lock rows
+ * written by 4.x versions are not taken over.
  */
 object LockStatements4x {
 

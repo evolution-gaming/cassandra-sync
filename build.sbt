@@ -45,10 +45,12 @@ lazy val commonSettings = Seq(
   // to fix dependabot alerts for dependencies on which we do not depend directly
   // https://github.com/evolution-gaming/cassandra-sync/security/dependabot
   dependencyOverrides ++= SecurityAlertOverrides.dependencies,
-
-  // TODO: [5.0.0 release] drop after release
-  // for Cassandra driver 4 migration, the artifacts were renamed
-  versionPolicyPreviousVersions := Seq(),
+  versionPolicyIgnored ++= Seq(
+    // there is no direct dependency on netty-codec, this suppresses this version policy check issue:
+    //  [error] Incompatibilities with dependencies of cassandra-sync:5.0.0
+    //  [error]   io.netty:netty-codec: missing dependency
+    "io.netty" % "netty-codec",
+  ),
 )
 
 addCommandAlias("fmt", "+all scalafmtRepo")
